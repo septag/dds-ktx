@@ -1,7 +1,7 @@
 # st-image: Portable single header image libraries for C/C++
 [@septag](https://twitter.com/septagh)
 
-**st-image** is a collection of single-header libraries that is used to manipulate,decode and encode and parse images. It's a work in process. Current components are:
+**st-image** is a collection of single-header libraries that is used to manipulate,decode and encode and parse images. It's a work in progress. Current components are:
 
 - _stc-parse.h_: Texture container parser. parses DDS and KTX formats
     - Currently only DDS is supported, KTX is on the way
