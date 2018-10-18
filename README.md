@@ -7,11 +7,24 @@
     - Currently only DDS is supported, KTX is on the way
     - Parses from memory blob, No memory allocation is performed
 
-### Usage
+### Usage (stc-parse)
 ```c
 #define STC_IMPLEMENT
 #include "stc-parse.h"      // DDS/ktx parser
 
+int size;
+void* dds_data = load_file("test.dds", &size);
+assert(dds_data);
+stc_texture_container tc = {0};
+if (stc_parse(&tc, dds_data, size, NULL)) {
+	//Create GPU texture from tc data
+	for (int layer = 0; layer < tc->num_layers; layer++) {
+		for (int mip = 0; mip < tc->num_mips; mip++) {
+			stc_get_sub(&tc, dds_data, size, layer, mip);
+			// Fill/Set texture sub resource data
+		}
+	}
+}
 ```
   
 ### Others
