@@ -17,14 +17,14 @@ void* dds_data = load_file("test.dds", &size);
 assert(dds_data);
 stc_texture_container tc = {0};
 if (stc_parse(&tc, dds_data, size, NULL)) {
-	//Create GPU texture from tc data
-	for (int layer = 0; layer < tc->num_layers; layer++) {
-		for (int mip = 0; mip < tc->num_mips; mip++) {
+    //Create GPU texture from tc data
+    for (int layer = 0; layer < tc->num_layers; layer++) {
+        for (int mip = 0; mip < tc->num_mips; mip++) {
             stc_sub_data sub_data;
-			stc_get_sub(&tc, &sub_data, dds_data, size, layer, mip);
-			// Fill/Set texture sub resource data
-		}
-	}
+            stc_get_sub(&tc, &sub_data, dds_data, size, layer, mip);
+            // Fill/Set texture sub resource data
+        }
+    }
 }
 ```
   
