@@ -3,13 +3,13 @@
 // License: https://github.com/septag/st-image#license-bsd-2-clause
 //
 // stc-parse.h - v1.0.0 - Parser for DDS/KTX formats
-//      Parses dds and ktx files from a memory blob, written in C99
+//      Parses DDS and KTX files from a memory blob, written in C99
 //      
 //      Supported formats:
 //          For supported formats, see stc_texture_format enum. 
 //          Both KTX/DDS parser supports all formats defined in stc_texture_format
 //
-//      Overriable defines:
+//      Overriable macros:
 //          STC_API     Define any function specifier for public functions (default: extern)
 //          stc_memcpy  default: memcpy(dst, src, size)
 //          stc_memset  default: memset(dst, v, size)
@@ -64,6 +64,9 @@
 //                  Added KTX support
 // TODO
 //      Read KTX metadata. currently it just stores the offset/size to the metadata block
+//
+// NOTES
+//      Some portions of this code are taken from 'bimg' library: https://github.com/bkaradzic/bimg
 //
 #pragma once
 
