@@ -2,8 +2,12 @@
 // Copyright 2018 Sepehr Taghdisian (septag@github). All rights reserved.
 // License: https://github.com/septag/st-image#license-bsd-2-clause
 //
-// stc-parse.h - v0.9.0 - Parser for DDS/KTX formats
+// stc-parse.h - v1.0.0 - Parser for DDS/KTX formats
 //      Parses dds and ktx files from a memory blob, written in C99
+//      
+//      Supported formats:
+//          For supported formats, see stc_texture_format enum. 
+//          Both KTX/DDS parser supports all formats defined in stc_texture_format
 //
 //      Overriable defines:
 //          STC_API     Define any function specifier for public functions (default: extern)
@@ -14,17 +18,20 @@
 //          
 //      API:
 //          bool stc_parse(stc_texture_container* tc, const void* file_data, int size, stc_error* err);
-//              Parses texture container file and fills the stc_texture_container from texture data
+//              Parses texture file and fills the stc_texture_container struct
 //              Returns true if successfully parsed, false if failed with an error message inside stc_error parameter (optional)
 //              After format is parsed, you can read the contents of stc_texture_format and create your GPU texture
 //              To get pointer to mips and slices see stc_get_sub function
 //          
 //          void stc_get_sub(const stc_texture_container* tex, stc_sub_data* buff, 
 //                           const void* file_data, int size,
-//                           int layer_idx, int mip_idx);
+//                           int array_idx, int slice_face_idx, int mip_idx);
 //              Gets sub-image data, form a parsed texture file
 //              user must provided the container object and the original file data which was passed to stc_parse
-//              layer_idx: texture layer, array number, slice number or cube map face  (0..num_layers-1 or 0..depth-1)
+//              array_idx: array index (0..num_layers)
+//              slice_face_idx: depth-slice or cube-face index. 
+//                              if 'flags' have STC_TEXTURE_FLAG_CUBEMAP bit, then this value represents cube-face-index (0..STC_CUBE_FACE_COUNT)
+//                              else it represents depth slice index (0..depth)
 //              mip_idx: mip index (0..num_mips-1 in stc_texture_container)
 //          
 //          const char* stc_format_str(stc_texture_format format);
@@ -33,27 +40,31 @@
 //          bool stc_format_compressed(stc_texture_format format);
 //              Returns true if format is compressed
 //
-//      Example:
+//      Example (for 2D textures only): 
 //          int size;
 //          void* dds_data = load_file("test.dds", &size);
 //          assert(dds_data);
 //          stc_texture_container tc = {0};
 //          if (stc_parse(&tc, dds_data, size, NULL)) {
+//              assert(tc.depth == 1);
+//              assert(!(tc.flags & STC_TEXTURE_FLAG_CUBEMAP));
+//              assert(tc.num_layers == 1);
 //              // Create GPU texture from tc data
-//              for (int layer = 0; layer < tc->num_layers; layer++) {
-//                  for (int mip = 0; mip < tc->num_mips; mip++) {
-//                      stc_get_sub(&tc, dds_data, size, layer, mip);
-//                      // Fill/Set texture sub resource data
-//                  }
+//              for (int mip = 0; mip < tc->num_mips; mip++) {
+//                  stc_sub_data sub_data;
+//                  stc_get_sub(&tc, &sub_data, dds_data, size, 0, 0, mip);
+//                  // Fill/Set texture sub resource data (mips in this case)
 //              }
 //          }
 //          free(dds_data);     // memory must be valid during stc_ calls
 //
 // Version history:
 //      0.9.0       Initial release, ktx is incomplete
-//
+//      1.0.0       Api change: stc_sub_data
+//                  Added KTX support
 // TODO
-//      - KTX parser
+//      Read KTX metadata. currently it just stores the offset/size to the metadata block
+//
 #pragma once
 
 #include <stddef.h>
@@ -73,10 +84,8 @@ typedef struct stc_sub_data
     const void* buff;
     int         width;
     int         height;
-    int         depth;
     int         size_bytes;
     int         row_pitch_bytes;
-    int         slice_pitch_bytes;
 } stc_sub_data;
 
 typedef enum stc_texture_format
@@ -98,6 +107,15 @@ typedef enum stc_texture_format
     STC_FORMAT_PTC14A,      // PVRTC1 RGBA 4bpp
     STC_FORMAT_PTC22,       // PVRTC2 RGBA 2bpp
     STC_FORMAT_PTC24,       // PVRTC2 RGBA 4bpp
+    STC_FORMAT_ATC,         // ATC RGB 4BPP
+    STC_FORMAT_ATCE,        // ATCE RGBA 8 BPP explicit alpha
+    STC_FORMAT_ATCI,        // ATCI RGBA 8 BPP interpolated alpha
+    STC_FORMAT_ASTC4x4,     // ASTC 4x4 8.0 BPP
+    STC_FORMAT_ASTC5x5,     // ASTC 5x5 5.12 BPP
+    STC_FORMAT_ASTC6x6,     // ASTC 6x6 3.56 BPP
+    STC_FORMAT_ASTC8x5,     // ASTC 8x5 3.20 BPP
+    STC_FORMAT_ASTC8x6,     // ASTC 8x6 2.67 BPP
+    STC_FORMAT_ASTC10x5,    // ASTC 10x5 2.56 BPP
     _STC_FORMAT_COMPRESSED,
     STC_FORMAT_A8,
     STC_FORMAT_R8,
@@ -141,6 +159,8 @@ typedef struct stc_texture_container
     int                 num_layers;
     int                 num_mips;
     int                 bpp;
+    int                 metadata_offset; // ktx only
+    int                 metadata_size;   // ktx only
 } stc_texture_container;
 
 typedef enum stc_cube_face
@@ -150,7 +170,8 @@ typedef enum stc_cube_face
     STC_CUBE_FACE_Y_POSITIVE,
     STC_CUBE_FACE_Y_NEGATIVE,
     STC_CUBE_FACE_Z_POSITIVE,
-    STC_CUBE_FACE_Z_NEGATIVE
+    STC_CUBE_FACE_Z_NEGATIVE,
+    STC_CUBE_FACE_COUNT
 } stc_cube_face;
 
 typedef struct stc_error
@@ -167,7 +188,7 @@ typedef struct stc_error
 STC_API bool stc_parse(stc_texture_container* tc, const void* file_data, int size, stc_error* err stc_default(NULL));
 STC_API void stc_get_sub(const stc_texture_container* tex, stc_sub_data* buff, 
                          const void* file_data, int size,
-                         int layer_idx, int mip_idx);
+                         int array_idx, int slice_face_idx, int mip_idx);
 STC_API const char* stc_format_str(stc_texture_format format);
 STC_API bool        stc_format_compressed(stc_texture_format format);
 
@@ -178,18 +199,34 @@ STC_API bool        stc_format_compressed(stc_texture_format format);
 #define stc__makefourcc(_a, _b, _c, _d) ( ( (uint32_t)(_a) | ( (uint32_t)(_b) << 8) | \
                                         ( (uint32_t)(_c) << 16) | ( (uint32_t)(_d) << 24) ) )
 
+// DDS: https://docs.microsoft.com/en-us/windows/desktop/direct3ddds/dx-graphics-dds-pguide
 #define STC__DDS_HEADER_SIZE 124
-#define STC__DDS_MAGIC  stc__makefourcc('D', 'D', 'S', ' ')
-#define STC__DDS_DXT1   stc__makefourcc('D', 'X', 'T', '1')
-#define STC__DDS_DXT2   stc__makefourcc('D', 'X', 'T', '2')
-#define STC__DDS_DXT3   stc__makefourcc('D', 'X', 'T', '3')
-#define STC__DDS_DXT4   stc__makefourcc('D', 'X', 'T', '4')
-#define STC__DDS_DXT5   stc__makefourcc('D', 'X', 'T', '5')
-#define STC__DDS_ATI1   stc__makefourcc('A', 'T', 'I', '1')
-#define STC__DDS_BC4U   stc__makefourcc('B', 'C', '4', 'U')
-#define STC__DDS_ATI2   stc__makefourcc('A', 'T', 'I', '2')
-#define STC__DDS_BC5U   stc__makefourcc('B', 'C', '5', 'U')
-#define STC__DDS_DX10   stc__makefourcc('D', 'X', '1', '0')
+#define STC__DDS_MAGIC       stc__makefourcc('D', 'D', 'S', ' ')
+#define STC__DDS_DXT1        stc__makefourcc('D', 'X', 'T', '1')
+#define STC__DDS_DXT2        stc__makefourcc('D', 'X', 'T', '2')
+#define STC__DDS_DXT3        stc__makefourcc('D', 'X', 'T', '3')
+#define STC__DDS_DXT4        stc__makefourcc('D', 'X', 'T', '4')
+#define STC__DDS_DXT5        stc__makefourcc('D', 'X', 'T', '5')
+#define STC__DDS_ATI1        stc__makefourcc('A', 'T', 'I', '1')
+#define STC__DDS_BC4U        stc__makefourcc('B', 'C', '4', 'U')
+#define STC__DDS_ATI2        stc__makefourcc('A', 'T', 'I', '2')
+#define STC__DDS_BC5U        stc__makefourcc('B', 'C', '5', 'U')
+#define STC__DDS_DX10        stc__makefourcc('D', 'X', '1', '0')
+
+#define STC__DDS_ETC1        stc__makefourcc('E', 'T', 'C', '1')
+#define STC__DDS_ETC2        stc__makefourcc('E', 'T', 'C', '2')
+#define STC__DDS_ET2A        stc__makefourcc('E', 'T', '2', 'A')
+#define STC__DDS_PTC2        stc__makefourcc('P', 'T', 'C', '2')
+#define STC__DDS_PTC4        stc__makefourcc('P', 'T', 'C', '4')
+#define STC__DDS_ATC         stc__makefourcc('A', 'T', 'C', ' ')
+#define STC__DDS_ATCE        stc__makefourcc('A', 'T', 'C', 'E')
+#define STC__DDS_ATCI        stc__makefourcc('A', 'T', 'C', 'I')
+#define STC__DDS_ASTC4x4     stc__makefourcc('A', 'S', '4', '4')
+#define STC__DDS_ASTC5x5     stc__makefourcc('A', 'S', '5', '5')
+#define STC__DDS_ASTC6x6     stc__makefourcc('A', 'S', '6', '6')
+#define STC__DDS_ASTC8x5     stc__makefourcc('A', 'S', '8', '5')
+#define STC__DDS_ASTC8x6     stc__makefourcc('A', 'S', '8', '6')
+#define STC__DDS_ASTC10x5    stc__makefourcc('A', 'S', ':', '5')
 
 #define STC__DDS_R8G8B8         20
 #define STC__DDS_A8R8G8B8       21
@@ -327,6 +364,23 @@ typedef struct stc__dds_header_dxgi
     uint32_t misc_flags2;
 } stc__dds_header_dxgi;
 
+typedef struct stc__ktx_header
+{
+    uint8_t  id[8];
+    uint32_t endianess;
+    uint32_t type;
+    uint32_t type_size;
+    uint32_t format;
+    uint32_t internal_format;
+    uint32_t base_internal_format;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t array_count;
+    uint32_t face_count;
+    uint32_t mip_count;
+    uint32_t metadata_size;
+} stc__ktx_header;
 #pragma pack(pop)
 
 typedef struct stc__dds_translate_fourcc_format
@@ -392,9 +446,10 @@ typedef struct stc__block_info
 #   endif
 #endif
 
-#define stc__max(a, b)              ((a) > (b) ? (a) : (b))
-#define stc__min(a, b)              ((a) < (b) ? (a) : (b))
-#define stc__err(_err, _msg)    if (_err)  stc_strcpy(_err->msg, _msg);   return false
+#define stc__max(a, b)                  ((a) > (b) ? (a) : (b))
+#define stc__min(a, b)                  ((a) < (b) ? (a) : (b))
+#define stc__align_mask(_value, _mask)  (((_value)+(_mask)) & ((~0)&(~(_mask))))
+#define stc__err(_err, _msg)            if (_err)  stc_strcpy(_err->msg, _msg);   return false
 
 static const stc__dds_translate_fourcc_format k__translate_dds_fourcc[] = {
     { STC__DDS_DXT1,                  STC_FORMAT_BC1,     false },
@@ -406,6 +461,20 @@ static const stc__dds_translate_fourcc_format k__translate_dds_fourcc[] = {
     { STC__DDS_BC4U,                  STC_FORMAT_BC4,     false },
     { STC__DDS_ATI2,                  STC_FORMAT_BC5,     false },
     { STC__DDS_BC5U,                  STC_FORMAT_BC5,     false },
+    { STC__DDS_ETC1,                  STC_FORMAT_ETC1,     false },
+    { STC__DDS_ETC2,                  STC_FORMAT_ETC2,     false },
+    { STC__DDS_ET2A,                  STC_FORMAT_ETC2A,    false },
+    { STC__DDS_PTC2,                  STC_FORMAT_PTC12A,   false },
+    { STC__DDS_PTC4,                  STC_FORMAT_PTC14A,   false },
+    { STC__DDS_ATC ,                  STC_FORMAT_ATC,      false },
+    { STC__DDS_ATCE,                  STC_FORMAT_ATCE,     false },
+    { STC__DDS_ATCI,                  STC_FORMAT_ATCI,     false },
+    { STC__DDS_ASTC4x4,               STC_FORMAT_ASTC4x4,  false },
+    { STC__DDS_ASTC5x5,               STC_FORMAT_ASTC5x5,  false },
+    { STC__DDS_ASTC6x6,               STC_FORMAT_ASTC6x6,  false },
+    { STC__DDS_ASTC8x5,               STC_FORMAT_ASTC8x5,  false },
+    { STC__DDS_ASTC8x6,               STC_FORMAT_ASTC8x6,  false },
+    { STC__DDS_ASTC10x5,              STC_FORMAT_ASTC10x5, false },
     { STC__DDS_A16B16G16R16,          STC_FORMAT_RGBA16,  false },
     { STC__DDS_A16B16G16R16F,         STC_FORMAT_RGBA16F, false },
     { STC__DDPF_RGB|STC__DDPF_ALPHAPIXELS, STC_FORMAT_BGRA8,   false },
@@ -510,6 +579,15 @@ static const stc__block_info k__block_info[] =
     {   4, 4, 4,  8, 2, 2,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // PTC14A
     {   2, 8, 4,  8, 2, 2,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // PTC22
     {   4, 4, 4,  8, 2, 2,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // PTC24
+    {   4, 4, 4,  8, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ATC
+    {   8, 4, 4, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ATCE
+    {   8, 4, 4, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ATCI
+    {   8, 4, 4, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ASTC4x4
+    {   6, 5, 5, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ASTC5x5
+    {   4, 6, 6, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ASTC6x6
+    {   4, 8, 5, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ASTC8x5
+    {   3, 8, 6, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ASTC8x6
+    {   3, 10, 5, 16, 1, 1, 0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // ASTC10x5
     {   0, 0, 0,  0, 0, 0,  0, 0,  0,  0,  0,  0, (uint8_t)(STC__ENCODE_COUNT) }, // Unknown
     {   8, 1, 1,  1, 1, 1,  0, 0,  0,  0,  0,  8, (uint8_t)(STC__ENCODE_UNORM) }, // A8
     {   8, 1, 1,  1, 1, 1,  0, 0,  8,  0,  0,  0, (uint8_t)(STC__ENCODE_UNORM) }, // R8
@@ -531,6 +609,266 @@ static const stc__block_info k__block_info[] =
     {  16, 1, 1,  2, 1, 1,  0, 0,  8,  8,  0,  0, (uint8_t)(STC__ENCODE_SNORM) }  // RG8S
 };
 
+// KTX: https://www.khronos.org/opengles/sdk/tools/KTX/file_format_spec/
+#define STC__KTX_MAGIC       stc__makefourcc(0xAB, 'K', 'T', 'X')
+#define STC__KTX_HEADER_SIZE 60     // actual header size is 64, but we read 4 bytes for the 'magic'
+
+#define STC__KTX_ETC1_RGB8_OES                             0x8D64
+#define STC__KTX_COMPRESSED_R11_EAC                        0x9270
+#define STC__KTX_COMPRESSED_SIGNED_R11_EAC                 0x9271
+#define STC__KTX_COMPRESSED_RG11_EAC                       0x9272
+#define STC__KTX_COMPRESSED_SIGNED_RG11_EAC                0x9273
+#define STC__KTX_COMPRESSED_RGB8_ETC2                      0x9274
+#define STC__KTX_COMPRESSED_SRGB8_ETC2                     0x9275
+#define STC__KTX_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2  0x9276
+#define STC__KTX_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2 0x9277
+#define STC__KTX_COMPRESSED_RGBA8_ETC2_EAC                 0x9278
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC          0x9279
+#define STC__KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG           0x8C00
+#define STC__KTX_COMPRESSED_RGB_PVRTC_2BPPV1_IMG           0x8C01
+#define STC__KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG          0x8C02
+#define STC__KTX_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG          0x8C03
+#define STC__KTX_COMPRESSED_RGBA_PVRTC_2BPPV2_IMG          0x9137
+#define STC__KTX_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG          0x9138
+#define STC__KTX_COMPRESSED_RGB_S3TC_DXT1_EXT              0x83F0
+#define STC__KTX_COMPRESSED_RGBA_S3TC_DXT1_EXT             0x83F1
+#define STC__KTX_COMPRESSED_RGBA_S3TC_DXT3_EXT             0x83F2
+#define STC__KTX_COMPRESSED_RGBA_S3TC_DXT5_EXT             0x83F3
+#define STC__KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT       0x8C4D
+#define STC__KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT       0x8C4E
+#define STC__KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT       0x8C4F
+#define STC__KTX_COMPRESSED_LUMINANCE_LATC1_EXT            0x8C70
+#define STC__KTX_COMPRESSED_LUMINANCE_ALPHA_LATC2_EXT      0x8C72
+#define STC__KTX_COMPRESSED_RGBA_BPTC_UNORM_ARB            0x8E8C
+#define STC__KTX_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_ARB      0x8E8D
+#define STC__KTX_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_ARB      0x8E8E
+#define STC__KTX_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB    0x8E8F
+#define STC__KTX_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT          0x8A54
+#define STC__KTX_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT          0x8A55
+#define STC__KTX_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT    0x8A56
+#define STC__KTX_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT    0x8A57
+#define STC__KTX_ATC_RGB_AMD                               0x8C92
+#define STC__KTX_ATC_RGBA_EXPLICIT_ALPHA_AMD               0x8C93
+#define STC__KTX_ATC_RGBA_INTERPOLATED_ALPHA_AMD           0x87EE
+#define STC__KTX_COMPRESSED_RGBA_ASTC_4x4_KHR              0x93B0
+#define STC__KTX_COMPRESSED_RGBA_ASTC_5x5_KHR              0x93B2
+#define STC__KTX_COMPRESSED_RGBA_ASTC_6x6_KHR              0x93B4
+#define STC__KTX_COMPRESSED_RGBA_ASTC_8x5_KHR              0x93B5
+#define STC__KTX_COMPRESSED_RGBA_ASTC_8x6_KHR              0x93B6
+#define STC__KTX_COMPRESSED_RGBA_ASTC_10x5_KHR             0x93B8
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR      0x93D0
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_5x5_KHR      0x93D2
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6_KHR      0x93D4
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x5_KHR      0x93D5
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x6_KHR      0x93D6
+#define STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_10x5_KHR     0x93D8
+
+#define STC__KTX_A8                                        0x803C
+#define STC__KTX_R8                                        0x8229
+#define STC__KTX_R16                                       0x822A
+#define STC__KTX_RG8                                       0x822B
+#define STC__KTX_RG16                                      0x822C
+#define STC__KTX_R16F                                      0x822D
+#define STC__KTX_R32F                                      0x822E
+#define STC__KTX_RG16F                                     0x822F
+#define STC__KTX_RG32F                                     0x8230
+#define STC__KTX_RGBA8                                     0x8058
+#define STC__KTX_RGBA16                                    0x805B
+#define STC__KTX_RGBA16F                                   0x881A
+#define STC__KTX_R32UI                                     0x8236
+#define STC__KTX_RG32UI                                    0x823C
+#define STC__KTX_RGBA32UI                                  0x8D70
+#define STC__KTX_RGBA32F                                   0x8814
+#define STC__KTX_RGB565                                    0x8D62
+#define STC__KTX_RGBA4                                     0x8056
+#define STC__KTX_RGB5_A1                                   0x8057
+#define STC__KTX_RGB10_A2                                  0x8059
+#define STC__KTX_R8I                                       0x8231
+#define STC__KTX_R8UI                                      0x8232
+#define STC__KTX_R16I                                      0x8233
+#define STC__KTX_R16UI                                     0x8234
+#define STC__KTX_R32I                                      0x8235
+#define STC__KTX_R32UI                                     0x8236
+#define STC__KTX_RG8I                                      0x8237
+#define STC__KTX_RG8UI                                     0x8238
+#define STC__KTX_RG16I                                     0x8239
+#define STC__KTX_RG16UI                                    0x823A
+#define STC__KTX_RG32I                                     0x823B
+#define STC__KTX_RG32UI                                    0x823C
+#define STC__KTX_R8_SNORM                                  0x8F94
+#define STC__KTX_RG8_SNORM                                 0x8F95
+#define STC__KTX_RGB8_SNORM                                0x8F96
+#define STC__KTX_RGBA8_SNORM                               0x8F97
+#define STC__KTX_R16_SNORM                                 0x8F98
+#define STC__KTX_RG16_SNORM                                0x8F99
+#define STC__KTX_RGB16_SNORM                               0x8F9A
+#define STC__KTX_RGBA16_SNORM                              0x8F9B
+#define STC__KTX_SRGB8                                     0x8C41
+#define STC__KTX_SRGB8_ALPHA8                              0x8C43
+#define STC__KTX_RGBA32UI                                  0x8D70
+#define STC__KTX_RGB32UI                                   0x8D71
+#define STC__KTX_RGBA16UI                                  0x8D76
+#define STC__KTX_RGB16UI                                   0x8D77
+#define STC__KTX_RGBA8UI                                   0x8D7C
+#define STC__KTX_RGB8UI                                    0x8D7D
+#define STC__KTX_RGBA32I                                   0x8D82
+#define STC__KTX_RGB32I                                    0x8D83
+#define STC__KTX_RGBA16I                                   0x8D88
+#define STC__KTX_RGB16I                                    0x8D89
+#define STC__KTX_RGBA8I                                    0x8D8E
+#define STC__KTX_RGB8                                      0x8051
+#define STC__KTX_RGB8I                                     0x8D8F
+#define STC__KTX_RGB9_E5                                   0x8C3D
+#define STC__KTX_R11F_G11F_B10F                            0x8C3A
+
+#define STC__KTX_ZERO                                      0
+#define STC__KTX_RED                                       0x1903
+#define STC__KTX_ALPHA                                     0x1906
+#define STC__KTX_RGB                                       0x1907
+#define STC__KTX_RGBA                                      0x1908
+#define STC__KTX_BGRA                                      0x80E1
+#define STC__KTX_RG                                        0x8227
+
+#define STC__KTX_BYTE                                      0x1400
+#define STC__KTX_UNSIGNED_BYTE                             0x1401
+#define STC__KTX_SHORT                                     0x1402
+#define STC__KTX_UNSIGNED_SHORT                            0x1403
+#define STC__KTX_INT                                       0x1404
+#define STC__KTX_UNSIGNED_INT                              0x1405
+#define STC__KTX_FLOAT                                     0x1406
+#define STC__KTX_HALF_FLOAT                                0x140B
+#define STC__KTX_UNSIGNED_INT_5_9_9_9_REV                  0x8C3E
+#define STC__KTX_UNSIGNED_SHORT_5_6_5                      0x8363
+#define STC__KTX_UNSIGNED_SHORT_4_4_4_4                    0x8033
+#define STC__KTX_UNSIGNED_SHORT_5_5_5_1                    0x8034
+#define STC__KTX_UNSIGNED_INT_2_10_10_10_REV               0x8368
+#define STC__KTX_UNSIGNED_INT_10F_11F_11F_REV              0x8C3B
+
+typedef struct stc__ktx_format_info
+{
+    uint32_t internal_fmt;
+    uint32_t internal_fmt_srgb;
+    uint32_t fmt;
+    uint32_t type;    
+} stc__ktx_format_info;
+
+typedef struct stc__ktx_format_info2
+{
+	uint32_t            internal_fmt;
+	stc_texture_format  format;    
+} stc__ktx_format_info2;
+
+static const stc__ktx_format_info k__translate_ktx_fmt[] = {
+		{ STC__KTX_COMPRESSED_RGBA_S3TC_DXT1_EXT,            STC__KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT,        STC__KTX_COMPRESSED_RGBA_S3TC_DXT1_EXT,            STC__KTX_ZERO,                         }, // BC1
+		{ STC__KTX_COMPRESSED_RGBA_S3TC_DXT3_EXT,            STC__KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT,        STC__KTX_COMPRESSED_RGBA_S3TC_DXT3_EXT,            STC__KTX_ZERO,                         }, // BC2
+		{ STC__KTX_COMPRESSED_RGBA_S3TC_DXT5_EXT,            STC__KTX_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT,        STC__KTX_COMPRESSED_RGBA_S3TC_DXT5_EXT,            STC__KTX_ZERO,                         }, // BC3
+		{ STC__KTX_COMPRESSED_LUMINANCE_LATC1_EXT,           STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_LUMINANCE_LATC1_EXT,           STC__KTX_ZERO,                         }, // BC4
+		{ STC__KTX_COMPRESSED_LUMINANCE_ALPHA_LATC2_EXT,     STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_LUMINANCE_ALPHA_LATC2_EXT,     STC__KTX_ZERO,                         }, // BC5
+		{ STC__KTX_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_ARB,     STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_ARB,     STC__KTX_ZERO,                         }, // BC6H
+		{ STC__KTX_COMPRESSED_RGBA_BPTC_UNORM_ARB,           STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_RGBA_BPTC_UNORM_ARB,           STC__KTX_ZERO,                         }, // BC7
+		{ STC__KTX_ETC1_RGB8_OES,                            STC__KTX_ZERO,                                       STC__KTX_ETC1_RGB8_OES,                            STC__KTX_ZERO,                         }, // ETC1
+		{ STC__KTX_COMPRESSED_RGB8_ETC2,                     STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_RGB8_ETC2,                     STC__KTX_ZERO,                         }, // ETC2
+		{ STC__KTX_COMPRESSED_RGBA8_ETC2_EAC,                STC__KTX_COMPRESSED_SRGB8_ETC2,                      STC__KTX_COMPRESSED_RGBA8_ETC2_EAC,                STC__KTX_ZERO,                         }, // ETC2A
+		{ STC__KTX_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2, STC__KTX_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2,  STC__KTX_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2, STC__KTX_ZERO,                         }, // ETC2A1
+		{ STC__KTX_COMPRESSED_RGB_PVRTC_2BPPV1_IMG,          STC__KTX_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT,           STC__KTX_COMPRESSED_RGB_PVRTC_2BPPV1_IMG,          STC__KTX_ZERO,                         }, // PTC12
+		{ STC__KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG,          STC__KTX_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT,           STC__KTX_COMPRESSED_RGB_PVRTC_4BPPV1_IMG,          STC__KTX_ZERO,                         }, // PTC14
+		{ STC__KTX_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG,         STC__KTX_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT,     STC__KTX_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG,         STC__KTX_ZERO,                         }, // PTC12A
+		{ STC__KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG,         STC__KTX_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT,     STC__KTX_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG,         STC__KTX_ZERO,                         }, // PTC14A
+		{ STC__KTX_COMPRESSED_RGBA_PVRTC_2BPPV2_IMG,         STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_RGBA_PVRTC_2BPPV2_IMG,         STC__KTX_ZERO,                         }, // PTC22
+		{ STC__KTX_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG,         STC__KTX_ZERO,                                       STC__KTX_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG,         STC__KTX_ZERO,                         }, // PTC24
+		{ STC__KTX_ATC_RGB_AMD,                              STC__KTX_ZERO,                                       STC__KTX_ATC_RGB_AMD,                              STC__KTX_ZERO,                         }, // ATC
+		{ STC__KTX_ATC_RGBA_EXPLICIT_ALPHA_AMD,              STC__KTX_ZERO,                                       STC__KTX_ATC_RGBA_EXPLICIT_ALPHA_AMD,              STC__KTX_ZERO,                         }, // ATCE
+		{ STC__KTX_ATC_RGBA_INTERPOLATED_ALPHA_AMD,          STC__KTX_ZERO,                                       STC__KTX_ATC_RGBA_INTERPOLATED_ALPHA_AMD,          STC__KTX_ZERO,                         }, // ATCI
+		{ STC__KTX_COMPRESSED_RGBA_ASTC_4x4_KHR,             STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR,       STC__KTX_COMPRESSED_RGBA_ASTC_4x4_KHR,             STC__KTX_ZERO,                         }, // ASTC4x4
+		{ STC__KTX_COMPRESSED_RGBA_ASTC_5x5_KHR,             STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_5x5_KHR,       STC__KTX_COMPRESSED_RGBA_ASTC_5x5_KHR,             STC__KTX_ZERO,                         }, // ASTC5x5
+		{ STC__KTX_COMPRESSED_RGBA_ASTC_6x6_KHR,             STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6_KHR,       STC__KTX_COMPRESSED_RGBA_ASTC_6x6_KHR,             STC__KTX_ZERO,                         }, // ASTC6x6
+		{ STC__KTX_COMPRESSED_RGBA_ASTC_8x5_KHR,             STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x5_KHR,       STC__KTX_COMPRESSED_RGBA_ASTC_8x5_KHR,             STC__KTX_ZERO,                         }, // ASTC8x5
+		{ STC__KTX_COMPRESSED_RGBA_ASTC_8x6_KHR,             STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_8x6_KHR,       STC__KTX_COMPRESSED_RGBA_ASTC_8x6_KHR,             STC__KTX_ZERO,                         }, // ASTC8x6
+		{ STC__KTX_COMPRESSED_RGBA_ASTC_10x5_KHR,            STC__KTX_COMPRESSED_SRGB8_ALPHA8_ASTC_10x5_KHR,      STC__KTX_COMPRESSED_RGBA_ASTC_10x5_KHR,            STC__KTX_ZERO,                         }, // ASTC10x5
+		{ STC__KTX_ZERO,                                     STC__KTX_ZERO,                                       STC__KTX_ZERO,                                     STC__KTX_ZERO,                         }, // Unknown
+		{ STC__KTX_ALPHA,                                    STC__KTX_ZERO,                                       STC__KTX_ALPHA,                                    STC__KTX_UNSIGNED_BYTE,                }, // A8
+		{ STC__KTX_R8,                                       STC__KTX_ZERO,                                       STC__KTX_RED,                                      STC__KTX_UNSIGNED_BYTE,                }, // R8
+		{ STC__KTX_RGBA8,                                    STC__KTX_SRGB8_ALPHA8,                               STC__KTX_RGBA,                                     STC__KTX_UNSIGNED_BYTE,                }, // RGBA8
+		{ STC__KTX_RGBA8_SNORM,                              STC__KTX_ZERO,                                       STC__KTX_RGBA,                                     STC__KTX_BYTE,                         }, // RGBA8S
+		{ STC__KTX_RG16,                                     STC__KTX_ZERO,                                       STC__KTX_RG,                                       STC__KTX_UNSIGNED_SHORT,               }, // RG16
+		{ STC__KTX_RGB8,                                     STC__KTX_SRGB8,                                      STC__KTX_RGB,                                      STC__KTX_UNSIGNED_BYTE,                }, // RGB8
+		{ STC__KTX_R16,                                      STC__KTX_ZERO,                                       STC__KTX_RED,                                      STC__KTX_UNSIGNED_SHORT,               }, // R16
+		{ STC__KTX_R32F,                                     STC__KTX_ZERO,                                       STC__KTX_RED,                                      STC__KTX_FLOAT,                        }, // R32F
+		{ STC__KTX_R16F,                                     STC__KTX_ZERO,                                       STC__KTX_RED,                                      STC__KTX_HALF_FLOAT,                   }, // R16F
+		{ STC__KTX_RG16F,                                    STC__KTX_ZERO,                                       STC__KTX_RG,                                       STC__KTX_FLOAT,                        }, // RG16F
+		{ STC__KTX_RG16_SNORM,                               STC__KTX_ZERO,                                       STC__KTX_RG,                                       STC__KTX_SHORT,                        }, // RG16S
+		{ STC__KTX_RGBA16F,                                  STC__KTX_ZERO,                                       STC__KTX_RGBA,                                     STC__KTX_HALF_FLOAT,                   }, // RGBA16F
+		{ STC__KTX_RGBA16,                                   STC__KTX_ZERO,                                       STC__KTX_RGBA,                                     STC__KTX_UNSIGNED_SHORT,               }, // RGBA16
+		{ STC__KTX_BGRA,                                     STC__KTX_SRGB8_ALPHA8,                               STC__KTX_BGRA,                                     STC__KTX_UNSIGNED_BYTE,                }, // BGRA8
+		{ STC__KTX_RGB10_A2,                                 STC__KTX_ZERO,                                       STC__KTX_RGBA,                                     STC__KTX_UNSIGNED_INT_2_10_10_10_REV,  }, // RGB10A2
+		{ STC__KTX_R11F_G11F_B10F,                           STC__KTX_ZERO,                                       STC__KTX_RGB,                                      STC__KTX_UNSIGNED_INT_10F_11F_11F_REV, }, // RG11B10F
+		{ STC__KTX_RG8,                                      STC__KTX_ZERO,                                       STC__KTX_RG,                                       STC__KTX_UNSIGNED_BYTE,                }, // RG8
+		{ STC__KTX_RG8_SNORM,                                STC__KTX_ZERO,                                       STC__KTX_RG,                                       STC__KTX_BYTE,                         }  // RG8S
+};
+
+static const stc__ktx_format_info2 k__translate_ktx_fmt2[] =
+{
+    { STC__KTX_A8,                           STC_FORMAT_A8    },
+    { STC__KTX_RED,                          STC_FORMAT_R8    },
+    { STC__KTX_RGB,                          STC_FORMAT_RGB8  },
+    { STC__KTX_RGBA,                         STC_FORMAT_RGBA8 },
+    { STC__KTX_COMPRESSED_RGB_S3TC_DXT1_EXT, STC_FORMAT_BC1   },
+};
+
+typedef struct stc__format_info
+{
+    const char* name;
+    bool        has_alpha;
+} stc__format_info;
+
+static const stc__format_info k__formats_info[] = {
+    {"BC1", false},
+    {"BC2", true},
+    {"BC3", true},
+    {"BC4", false},
+    {"BC5", false},
+    {"BC6H", false},
+    {"BC7", true},
+    {"ETC1", false},
+    {"ETC2", false},
+    {"ETC2A", true},
+    {"ETC2A1", true},
+    {"PTC12", false},
+    {"PTC14", false},
+    {"PTC12A", true},
+    {"PTC14A", true},
+    {"PTC22", true},
+    {"PTC24", true},
+    {"ATC", false},
+    {"ATCE", false},
+    {"ATCI", false},
+    {"ASTC4x4", true},
+    {"ASTC5x5", true},
+    {"ASTC6x6", false},
+    {"ASTC8x5", true},
+    {"ASTC8x6", false},
+    {"ASTC10x5", false},
+    {"<unknown>", false},
+    {"A8", true},
+    {"R8", false},
+    {"RGBA8", true},
+    {"RGBA8S", true},
+    {"RG16", false},
+    {"RGB8", false},
+    {"R16", false},
+    {"R32F", false},
+    {"R16F", false},
+    {"RG16F", false},
+    {"RG16S", false},
+    {"RGBA16F", true},
+    {"RGBA16",true},
+    {"BGRA8", true},
+    {"RGB10A2", true},
+    {"RG11B10F", false},
+    {"RG8", false},
+    {"RG8S", false}
+};
+
 
 static inline int stc__read(stc__mem_reader* reader, void* buff, int size)
 {
@@ -540,13 +878,76 @@ static inline int stc__read(stc__mem_reader* reader, void* buff, int size)
     return read_bytes;
 }
 
-bool stc__parse_ktx(stc_texture_container* tc, const void* file_data, int size, stc_error* err)
+static bool stc__parse_ktx(stc_texture_container* tc, const void* file_data, int size, stc_error* err)
 {
-    stc_assert(0 && "To be implemented");
+    stc_memset(tc, 0x0, sizeof(stc_texture_container));
+
+    stc__mem_reader r = {(const uint8_t*)file_data, size, sizeof(uint32_t)};
+    stc__ktx_header header;
+    if (stc__read(&r, &header, sizeof(header)) != STC__KTX_HEADER_SIZE) {
+        stc__err(err, "ktx; header size does not match");
+    }
+
+    if (header.id[1] != '1' && header.id[2] != '1')    {
+        stc__err(err, "ktx: invalid file header");
+    }
+
+    // TODO: support little endian
+    if (header.endianess == 0x04030201) {
+        stc__err(err, "ktx: little-endian format is not supported");
+    }
+
+    tc->metadata_offset = r.offset;
+    tc->metadata_size = (int)header.metadata_size;
+    r.offset += (int)header.metadata_size;
+
+    stc_texture_format format = _STC_FORMAT_COUNT;
+
+    int count = sizeof(k__translate_ktx_fmt)/sizeof(stc__ktx_format_info);
+    for (int i = 0; i < count; i++) {
+        if (k__translate_ktx_fmt[i].internal_fmt == header.internal_format) {
+            format = (stc_texture_format)i;
+            break;
+        }
+    }
+
+    if (format == _STC_FORMAT_COUNT) {
+        count = sizeof(k__translate_ktx_fmt2)/sizeof(stc__ktx_format_info2);
+        for (int i = 0; i < count; i++) {
+            if (k__translate_ktx_fmt2[i].internal_fmt == header.internal_format) {
+                format = (stc_texture_format)k__translate_ktx_fmt2[i].format;
+                break;
+            }
+        }
+    }
+
+    if (format == _STC_FORMAT_COUNT) {
+        stc__err(err, "ktx: unsupported format");
+    } 
+
+    if (header.face_count > 1 && header.face_count != STC_CUBE_FACE_COUNT) {
+        stc__err(err, "ktx: incomplete cubemap");
+    }
+
+    tc->data_offset = r.offset;
+    tc->size_bytes = r.total - r.offset;
+    tc->format = format;
+    tc->width = (int)header.width;
+    tc->height = (int)header.height;
+    tc->depth = stc__max((int)header.depth, 1);
+    tc->num_layers = stc__max((int)header.array_count, 1);
+    tc->num_mips = stc__max((int)header.mip_count, 1);
+    tc->bpp = k__block_info[format].bpp;
+
+    if (header.face_count > 1)
+        tc->flags |= STC_TEXTURE_FLAG_CUBEMAP;
+    tc->flags |= k__formats_info[format].has_alpha ? STC_TEXTURE_FLAG_ALPHA : 0;
+    tc->flags |= STC_TEXTURE_FLAG_KTX;
+
     return false;
 }
 
-bool stc__parse_dds(stc_texture_container* tc, const void* file_data, int size, stc_error* err)
+static bool stc__parse_dds(stc_texture_container* tc, const void* file_data, int size, stc_error* err)
 {
 
     stc__mem_reader r = {(const uint8_t*)file_data, size, sizeof(uint32_t)};
@@ -637,7 +1038,7 @@ bool stc__parse_dds(stc_texture_container* tc, const void* file_data, int size, 
     tc->width = (int)header.width;
     tc->height = (int)header.height;
     tc->depth = stc__max(1, (int)header.depth);
-    tc->num_layers = (int)array_size;
+    tc->num_layers = stc__max(1, (int)array_size);
     tc->num_mips = (header.caps1 & STC__DDSCAPS_MIPMAP) ? (int)header.mip_count : 1;
     tc->bpp = k__block_info[format].bpp;
     if (has_alpha)
@@ -651,16 +1052,17 @@ bool stc__parse_dds(stc_texture_container* tc, const void* file_data, int size, 
     return true;
 }   
 
-
-STC_API void stc_get_sub(const stc_texture_container* tc, stc_sub_data* sub_data, 
-                            const void* file_data, int size,
-                            int layer_idx, int mip_idx)
+void stc_get_sub(const stc_texture_container* tc, stc_sub_data* sub_data, 
+                 const void* file_data, int size,
+                 int array_idx, int slice_face_idx, int mip_idx)
 {
     stc_assert(tc);
     stc_assert(sub_data);
     stc_assert(file_data);
     stc_assert(size > 0);
-    stc_assert(layer_idx < tc->num_layers);
+    stc_assert(array_idx < tc->num_layers);
+    stc_assert(!((tc->flags&STC_TEXTURE_FLAG_CUBEMAP) && (slice_face_idx >= STC_CUBE_FACE_COUNT)) && "invalid cube-face index");
+    stc_assert(!(!(tc->flags&STC_TEXTURE_FLAG_CUBEMAP) && (slice_face_idx >= tc->depth)) && "invalid depth-slice index");
     stc_assert(mip_idx < tc->num_mips);
 
     stc__mem_reader r = { (uint8_t*)file_data, size, tc->data_offset };
@@ -669,55 +1071,116 @@ STC_API void stc_get_sub(const stc_texture_container* tc, stc_sub_data* sub_data
 
     stc_assert(format < _STC_FORMAT_COUNT && format != _STC_FORMAT_COMPRESSED);
     const stc__block_info* binfo = &k__block_info[format];
-    const int bpp         = binfo->bpp;
+    const int bpp          = binfo->bpp;
     const int block_size   = binfo->block_size;
     const int block_width  = binfo->block_width;
     const int block_height = binfo->block_height;
     const int min_block_x  = binfo->min_block_x;
     const int min_block_y  = binfo->min_block_y;
 
-    const int num_sides = tc->num_layers * ((tc->flags & STC_TEXTURE_FLAG_CUBEMAP) ? 6 : 1);
+    int num_faces;
     const int min_width = min_block_x*block_width;
     const int min_height = min_block_y*block_height;
 
+    stc_assert(!((tc->flags & STC_TEXTURE_FLAG_CUBEMAP) && tc->depth > 1) && "textures must be either Cube or 3D");
+    int slice_idx, face_idx, num_slices;
+    if (tc->flags & STC_TEXTURE_FLAG_CUBEMAP) {
+        slice_idx = 0;
+        face_idx = slice_face_idx;
+        num_faces = STC_CUBE_FACE_COUNT;
+        num_slices = 1;
+    } else {
+        slice_idx = slice_face_idx;
+        face_idx = 0;
+        num_faces = 1;
+        num_slices = tc->depth;
+    }    
+
     if (tc->flags & STC_TEXTURE_FLAG_DDS) {
-        for (int side = 0; side < num_sides; side++) {
-            int width = tc->width;
-            int height = tc->height;
-            int depth = tc->depth;
+        for (int layer = 0, num_layers = tc->num_layers; layer < num_layers; layer++) {
+            for (int face = 0; face < num_faces; face++) {
+                int width = tc->width;
+                int height = tc->height;
 
-            for (int mip = 0, c = tc->num_mips; mip < c; mip++) {
-                width = ((width + block_width - 1)/block_width)*block_width;
-                height = ((height + block_height - 1)/block_height)*block_height;
-                width = stc__max(min_width, width);
-                height = stc__max(min_height, height);
-                depth = stc__max(1, depth);
-                int size = width*height*depth*bpp/8;
+                for (int mip = 0, mip_count = tc->num_mips; mip < mip_count; mip++) {
+                    width = ((width + block_width - 1)/block_width)*block_width;
+                    height = ((height + block_height - 1)/block_height)*block_height;
+                    width = stc__max(min_width, width);
+                    height = stc__max(min_height, height);
+                    int mip_size = width/block_width * height/block_height * block_size;
+                    stc_assert(width*height*bpp/8 == mip_size);
 
-                if (side == layer_idx && mip == mip_idx) {
-                    sub_data->buff = r.buff + r.offset;
-                    sub_data->width = width;
-                    sub_data->height = height;
-                    sub_data->depth = depth;
-                    sub_data->size_bytes = size;
-                    sub_data->row_pitch_bytes = width*bpp/8;
-                    sub_data->slice_pitch_bytes = width*height*bpp/8;
-                }
+                    for (int slice = 0; slice < num_slices; slice++) {
+                        if (layer == array_idx && mip == mip_idx && 
+                            slice == slice_idx && face_idx == face) 
+                        {
+                            sub_data->buff = r.buff + r.offset;
+                            sub_data->width = width;
+                            sub_data->height = height;
+                            sub_data->size_bytes = mip_size;
+                            sub_data->row_pitch_bytes = width*bpp/8;
+                            return;
+                        }
 
-                r.offset += size;
-                stc_assert(r.offset <= r.total && "texture buffer overflow");
+                        r.offset += mip_size;
+                        stc_assert(r.offset <= r.total && "texture buffer overflow");
+                    } // foreach slice
 
-                width >>= 1;
-                height >>= 1;
-                depth >>= 1;
-            }
-        }
+                    width >>= 1;
+                    height >>= 1;
+                }   // foreach mip
+            }   // foreach face
+        } // foreach array-item
     } else if (tc->flags & STC_TEXTURE_FLAG_KTX) {
-        stc_assert(0 && "TODO");
+        int width = tc->width;
+        int height = tc->height;
+
+        for (int mip = 0, c = tc->num_mips; mip < c; mip++) {
+            width = ((width  + block_width  - 1) / block_width)*block_width;
+            height = ((height + block_height - 1) / block_height)*block_height;
+            width  = stc__max(min_width, width);
+            height = stc__max(min_height, height);
+            int mip_size = width/block_width * height/block_height * block_size;
+            stc_assert(width*height*bpp/8 == mip_size);
+
+            int image_size;
+            stc__read(&r, &image_size, sizeof(image_size)); 
+            stc_assert(image_size == (mip_size*num_faces*num_slices) && "image size mismatch");
+
+            for (int layer = 0, num_layers = tc->num_layers; layer < num_layers; layer++) {
+                for (int face = 0; face < num_faces; face++) {
+                    for (int slice = 0; slice < num_slices; slice++) {
+                        if (layer == array_idx && mip == mip_idx &&
+                            slice == slice_idx && face_idx == face) 
+                        {
+                            sub_data->buff = r.buff + r.offset;
+                            sub_data->width = width;
+                            sub_data->height = height;
+                            sub_data->size_bytes = mip_size;
+                            sub_data->row_pitch_bytes = width*bpp/8;
+                            return;
+                        }
+
+                        r.offset += mip_size;
+                        stc_assert(r.offset <= r.total && "texture buffer overflow");
+                    }   // foreach slice
+
+                    
+                    r.offset = stc__align_mask(r.offset, 3); // cube-padding
+                }   // foreach face
+            }   // foreach array-item
+
+            width >>= 1;
+            height >>= 1;
+            
+            r.offset = stc__align_mask(r.offset, 3); // mip-padding
+        }   // foreach mip     
+    } else {
+        sx_assert(0 && "invalid file format");
     }
 }
 
-STC_API bool stc_parse(stc_texture_container* tc, const void* file_data, int size, stc_error* err)
+bool stc_parse(stc_texture_container* tc, const void* file_data, int size, stc_error* err)
 {
     stc_assert(tc);
     stc_assert(file_data);
@@ -739,49 +1202,12 @@ STC_API bool stc_parse(stc_texture_container* tc, const void* file_data, int siz
     }
 }
 
-STC_API const char* stc_format_str(stc_texture_format format)
+const char* stc_format_str(stc_texture_format format)
 {
-    switch (format) {
-    case STC_FORMAT_BC1:         return "BC1";
-    case STC_FORMAT_BC2:         return "BC2";
-    case STC_FORMAT_BC3:         return "BC3";
-    case STC_FORMAT_BC4:         return "BC4";
-    case STC_FORMAT_BC5:         return "BC5";
-    case STC_FORMAT_BC6H:        return "BC6H";
-    case STC_FORMAT_BC7:         return "BC7";
-    case STC_FORMAT_ETC1:        return "ETC1";
-    case STC_FORMAT_ETC2:        return "ETC2";
-    case STC_FORMAT_ETC2A:       return "ETC2A";
-    case STC_FORMAT_ETC2A1:      return "ETC2A1";
-    case STC_FORMAT_PTC12:       return "PTC12";
-    case STC_FORMAT_PTC14:       return "PTC14";
-    case STC_FORMAT_PTC12A:      return "PTC12A";
-    case STC_FORMAT_PTC14A:      return "PTC14A";
-    case STC_FORMAT_PTC22:       return "PTC22";
-    case STC_FORMAT_PTC24:       return "PTC24";
-    case STC_FORMAT_A8:          return "A8";
-    case STC_FORMAT_R8:          return "R8";
-    case STC_FORMAT_RGBA8:       return "RGBA8";
-    case STC_FORMAT_RGBA8S:      return "RGBA8S";
-    case STC_FORMAT_RG16:        return "RG16";
-    case STC_FORMAT_RGB8:        return "RGB8";
-    case STC_FORMAT_R16:         return "R16";
-    case STC_FORMAT_R32F:        return "R32F";
-    case STC_FORMAT_R16F:        return "R16F";
-    case STC_FORMAT_RG16F:       return "RG16F";
-    case STC_FORMAT_RG16S:       return "RG16S";
-    case STC_FORMAT_RGBA16F:     return "RGBA16F";
-    case STC_FORMAT_RGBA16:      return "RGBA16";
-    case STC_FORMAT_BGRA8:       return "BGRA8";
-    case STC_FORMAT_RGB10A2:     return "RGB10A2";
-    case STC_FORMAT_RG11B10F:    return "R11B10F";
-    case STC_FORMAT_RG8:         return "RG8";
-    case STC_FORMAT_RG8S:        return "RG8S";
-    default:                     return "Unknown";        
-    }
+    return k__formats_info[format].name;
 }
 
-STC_API bool stc_format_compressed(stc_texture_format format)
+bool stc_format_compressed(stc_texture_format format)
 {
     stc_assert(format != _STC_FORMAT_COMPRESSED && format != _STC_FORMAT_COUNT);
     return format < _STC_FORMAT_COMPRESSED;

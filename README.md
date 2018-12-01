@@ -4,26 +4,41 @@
 **st-image** is a collection of single-header libraries that is used to manipulate,decode and encode and parse images. It's a work in progress. Current components are:
 
 - _stc-parse.h_: Texture container parser. parses DDS and KTX formats
-    - Currently only DDS is supported, KTX is on the way
-    - Parses from memory blob, No memory allocation is performed
+    - Parses from memory blob. No allocations
+    - No dependencies
+    - Single-header for easy integration
+    - Overriable libc functions 
 
 ### Usage (stc-parse)
+In this example, a simple 2D texture is parsed and created using OpenGL
+
 ```c
 #define STC_IMPLEMENT
-#include "stc-parse.h"      // DDS/ktx parser
+#include "stc-parse.h"
 
 int size;
 void* dds_data = load_file("test.dds", &size);
 assert(dds_data);
 stc_texture_container tc = {0};
+GLuint tex = 0;
 if (stc_parse(&tc, dds_data, size, NULL)) {
+    assert(tc.depth == 1);
+    assert(!(tc.flags & STC_TEXTURE_FLAG_CUBEMAP));
+    assert(tc.num_layers == 1);
+
     //Create GPU texture from tc data
-    for (int layer = 0; layer < tc->num_layers; layer++) {
-        for (int mip = 0; mip < tc->num_mips; mip++) {
-            stc_sub_data sub_data;
-            stc_get_sub(&tc, &sub_data, dds_data, size, layer, mip);
-            // Fill/Set texture sub resource data
-        }
+	glGenTextures(1, &tex);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(img->gl_target, tex);
+
+    for (int mip = 0; mip < tc->num_mips; mip++) {
+        stc_sub_data sub_data;
+        stc_get_sub(&tc, &sub_data, dds_data, size, 0, 0, mip);
+        // Fill/Set texture sub resource data (mips in this case)
+		if (stc_format_compressed(tc.format))
+			glCompressedTexImage2D(..);
+		else
+			glTexImage2D(..);
     }
 }
 ```
