@@ -1200,6 +1200,8 @@ bool stc_parse(stc_texture_container* tc, const void* file_data, int size, stc_e
     switch (file_flag) {
     case STC__DDS_MAGIC:
         return stc__parse_dds(tc, file_data, size, err);
+    case STC__KTX_MAGIC:
+        return stc__parse_ktx(tc, file_data, size, err);
     default:
         stc__err(err, "unknown texture format");
     }
