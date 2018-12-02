@@ -50,7 +50,9 @@ if (ddsktx_parse(&tc, dds_data, size, NULL)) {
   
 ### Others
 
-- [bimg](https://github.com/bkaradzic/bimg)
+- [stb_image](https://github.com/nothings/stb/blob/master/stb_image.h) - Single header library that loads images (.png, .jpg, .bmp, etc)
+- [bimg](https://github.com/bkaradzic/bimg) - Extensive C++ image library
+
   
 [License (BSD 2-clause)](https://github.com/septag/dds-ktx/blob/master/LICENSE)
 --------------------------------------------------------------------------
