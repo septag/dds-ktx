@@ -1,4 +1,4 @@
-## dds-ktx: Portable single header DDS/KTX reader/writer for C/C++
+## dds-ktx: Portable single header DDS/KTX reader for C/C++
 [@septag](https://twitter.com/septagh)
 
 - Parses from memory blob. No allocations
@@ -16,9 +16,9 @@ In this example, a simple 2D texture is parsed and created using OpenGL
 int size;
 void* dds_data = load_file("test.dds", &size);
 assert(dds_data);
-stc_texture_container tc = {0};
+ddsktx_texture_info tc = {0};
 GLuint tex = 0;
-if (stc_parse(&tc, dds_data, size, NULL)) {
+if (ddsktx_parse(&tc, dds_data, size, NULL)) {
     assert(tc.depth == 1);
     assert(!(tc.flags & STC_TEXTURE_FLAG_CUBEMAP));
     assert(tc.num_layers == 1);
@@ -29,22 +29,30 @@ if (stc_parse(&tc, dds_data, size, NULL)) {
     glBindTexture(img->gl_target, tex);
 
     for (int mip = 0; mip < tc->num_mips; mip++) {
-        stc_sub_data sub_data;
-        stc_get_sub(&tc, &sub_data, dds_data, size, 0, 0, mip);
+        ddsktx_sub_data sub_data;
+        ddsktx_sub_data(&tc, &sub_data, dds_data, size, 0, 0, mip);
         // Fill/Set texture sub resource data (mips in this case)
-        if (stc_format_compressed(tc.format))
+        if (ddsktx_format_compressed(tc.format))
             glCompressedTexImage2D(..);
         else
             glTexImage2D(..);
     }
+
+    // Now we can delete file data
+    free(dds_data);
 }
 ```
+
+### TODO
+
+- Write KTX/DDS
+- Read KTX metadata. currently it just stores the offset/size to the metadata block
   
 ### Others
 
 - [bimg](https://github.com/bkaradzic/bimg)
   
-[License (BSD 2-clause)](https://github.com/septag/st-image/blob/master/LICENSE)
+[License (BSD 2-clause)](https://github.com/septag/dds-ktx/blob/master/LICENSE)
 --------------------------------------------------------------------------
 
 <a href="http://opensource.org/licenses/BSD-2-Clause" target="_blank">
@@ -53,7 +61,7 @@ if (stc_parse(&tc, dds_data, size, NULL)) {
 
     Copyright 2018 Sepehr Taghdisian. All rights reserved.
     
-    https://github.com/septag/st-image
+    https://github.com/septag/dds-ktx
     
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
