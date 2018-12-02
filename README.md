@@ -1,20 +1,17 @@
-# st-image: Portable single header image libraries for C/C++
+# dds-ktx: Portable single header DDS/KTX reader/writer for C/C++
 [@septag](https://twitter.com/septagh)
 
-**st-image** is a collection of single-header libraries that is used to manipulate,decode and encode and parse images. It's a work in progress. Current components are:
-
-- _stc-parse.h_: Texture container parser. parses DDS and KTX formats
-    - Parses from memory blob. No allocations
-    - No dependencies
-    - Single-header for easy integration
-    - Overriable libc functions 
+- Parses from memory blob. No allocations
+- No dependencies
+- Single-header for easy integration
+- Overridable libc functions 
 
 ### Usage (stc-parse)
 In this example, a simple 2D texture is parsed and created using OpenGL
 
 ```c
 #define STC_IMPLEMENT
-#include "stc-parse.h"
+#include "dds-ktx.h"
 
 int size;
 void* dds_data = load_file("test.dds", &size);
