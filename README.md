@@ -1,4 +1,4 @@
-# dds-ktx: Portable single header DDS/KTX reader/writer for C/C++
+## dds-ktx: Portable single header DDS/KTX reader/writer for C/C++
 [@septag](https://twitter.com/septagh)
 
 - Parses from memory blob. No allocations
