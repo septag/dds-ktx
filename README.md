@@ -6,7 +6,7 @@
 - Single-header for easy integration
 - Overridable libc functions 
 
-### Usage (stc-parse)
+### Usage
 In this example, a simple 2D texture is parsed and created using OpenGL
 
 ```c
