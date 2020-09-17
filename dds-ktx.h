@@ -908,7 +908,7 @@ static bool ddsktx__parse_ktx(ddsktx_texture_info* tc, const void* file_data, in
         ddsktx__err(err, "ktx; header size does not match");
     }
     
-    if (ddsktx_memcmp(header.id, sizeof(header.id)) == 0) {
+    if (ddsktx_memcmp(header.id, ktx__id, sizeof(header.id)) == 0) {
         ddsktx__err(err, "ktx: invalid file header");
     }
 
@@ -1194,7 +1194,7 @@ void ddsktx_get_sub(const ddsktx_texture_info* tc, ddsktx_sub_data* sub_data,
             r.offset = ddsktx__align_mask(r.offset, 3); // mip-padding
         }   // foreach mip     
     } else {
-        sx_assert(0 && "invalid file format");
+        ddsktx_assert(0 && "invalid file format");
     }
 }
 
