@@ -10,7 +10,7 @@
 In this example, a simple 2D texture is parsed and created using OpenGL
 
 ```c
-#define STC_IMPLEMENT
+#define DDSKTX_IMPLEMENT
 #include "dds-ktx.h"
 
 int size;
@@ -30,7 +30,7 @@ if (ddsktx_parse(&tc, dds_data, size, NULL)) {
 
     for (int mip = 0; mip < tc->num_mips; mip++) {
         ddsktx_sub_data sub_data;
-        ddsktx_sub_data(&tc, &sub_data, dds_data, size, 0, 0, mip);
+        ddsktx_get_sub(&tc, &sub_data, dds_data, size, 0, 0, mip);
         // Fill/Set texture sub resource data (mips in this case)
         if (ddsktx_format_compressed(tc.format))
             glCompressedTexImage2D(..);
