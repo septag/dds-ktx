@@ -977,7 +977,7 @@ static bool ddsktx__parse_dds(ddsktx_texture_info* tc, const void* file_data, in
         ddsktx__err(err, "dds: header size does not match");
     }
 
-    uint32_t required_flags = (DDSKTX__DDSD_CAPS|DDSKTX__DDSD_HEIGHT|DDSKTX__DDSD_WIDTH|DDSKTX__DDSD_PIXELFORMAT);
+    uint32_t required_flags = (DDSKTX__DDSD_HEIGHT|DDSKTX__DDSD_WIDTH);
     if ((header.flags & required_flags) != required_flags) {
         ddsktx__err(err, "dds: have invalid flags");
     }
