@@ -75,10 +75,8 @@
 //      Write KTX/DDS
 //      Read KTX metadata. currently it just stores the offset/size to the metadata block
 //
-// NOTES
-//      Some portions of this code are taken from 'bimg' library: https://github.com/bkaradzic/bimg
-//
-#pragma once
+
+ #pragma once
 
 #include <stddef.h>
 #include <stdint.h>

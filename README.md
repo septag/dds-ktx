@@ -6,6 +6,27 @@
 - Single-header for easy integration
 - Overridable libc functions 
 
+### Build Example (ctexview)
+[**ctexview**](ctexview/ctexview.c) is a tiny ddx-ktx viewer that can be built on linux/mac and windows. To build it just compile the single file with your compiler.
+
+Windows:
+```
+cl ctexview.c /O2
+```
+
+Linux:
+```
+gcc ctexview.c -O2 -lGL -ldl -lX11 -lXi -lXcursor -o ctexview
+```
+
+to view images just provide the image path as an argument:
+
+```
+ctexview [dds_or_ktx_image_file_path]
+```
+
+Used open-source libraries for app creation/graphics: [sokol](https://github.com/floooh/sokol)
+
 ### Usage
 In this example, a simple 2D texture is parsed and created using OpenGL
 
