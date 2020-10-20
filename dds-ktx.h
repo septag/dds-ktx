@@ -907,8 +907,8 @@ static bool ddsktx__parse_ktx(ddsktx_texture_info* tc, const void* file_data, in
     if (ddsktx__read(&r, &header, sizeof(header)) != DDSKTX__KTX_HEADER_SIZE) {
         ddsktx__err(err, "ktx; header size does not match");
     }
-    
-    if (ddsktx_memcmp(header.id, ktx__id, sizeof(header.id)) == 0) {
+
+    if (ddsktx_memcmp(header.id, ktx__id, sizeof(header.id)) != 0) {
         ddsktx__err(err, "ktx: invalid file header");
     }
 
