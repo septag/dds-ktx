@@ -1195,7 +1195,7 @@ void ddsktx_get_sub(const ddsktx_texture_info* tc, ddsktx_sub_data* sub_data,
                             sub_data->width = width;
                             sub_data->height = height;
                             sub_data->size_bytes = mip_size;
-                            sub_data->row_pitch_bytes = width*bpp/8;
+                            sub_data->row_pitch_bytes = row_bytes;
                             return;
                         }
 
