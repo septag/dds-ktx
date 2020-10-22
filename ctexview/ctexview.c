@@ -28,6 +28,10 @@
 #include <assert.h>
 #include <stdarg.h>
 
+#define SOKOL_DEBUGTEXT_IMPL
+#include "sokol_debugtext.h"
+
+#define FONT_SCALE 1.1f
 
 typedef struct ctexview_state
 {
@@ -40,6 +44,9 @@ typedef struct ctexview_state
     sg_pipeline pip;
     sg_buffer vb;
     sg_buffer ib;
+    sg_image checker;
+    bool inv_text_color;
+    float color_mask[4];
 } ctexview_state;
 
 ctexview_state g_state;
@@ -51,6 +58,77 @@ typedef struct vertex
     float u;
     float v;
 } vertex;
+
+static int nearest_pow2(int n)
+{
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n++;
+    return n;
+}
+
+static sg_image create_checker_texture(int checker_size, int size, uint32_t colors[2])
+{
+    assert(size % 4 == 0 && "size must be multiple of four");
+    assert(size % checker_size == 0 && "checker_size must be dividable by size");
+
+    int size_bytes = size * size * sizeof(uint32_t);
+    uint32_t* pixels = malloc(size_bytes);
+    assert(pixels);
+
+    // split into tiles and color them
+    int tiles_x = size / checker_size;
+    int tiles_y = size / checker_size;
+    int num_tiles = tiles_x * tiles_y;
+
+    int* poss = malloc(sizeof(int) * 2 * num_tiles);
+    assert(poss);
+    int _x = 0, _y = 0;
+    for (int i = 0; i < num_tiles; i++) {
+        poss[i*2] = _x;
+        poss[i*2 + 1] = _y;
+        _x += checker_size;
+        if (_x >= size) {
+            _x = 0;
+            _y += checker_size;
+        }
+    }
+
+    int color_idx = 0;
+    for (int i = 0; i < num_tiles; i++) {
+        int* p = poss + i*2;
+        uint32_t c = colors[color_idx];
+        if (i == 0 || ((i + 1) % tiles_x) != 0)
+            color_idx = !color_idx;
+        int end_x = p[0] + checker_size;
+        int end_y = p[1] + checker_size;
+        for (int y = p[1]; y < end_y; y++) {
+            for (int x = p[0]; x < end_x; x++) {
+                int pixel = x + y * size;
+                pixels[pixel] = c;
+            }
+        }
+    }
+
+    sg_image tex = sg_make_image(&(sg_image_desc) {
+        .width = size,
+        .height = size,
+        .num_mipmaps = 1,
+        .pixel_format = SG_PIXELFORMAT_RGBA8,
+        .content = (sg_image_content){.subimage[0][0].ptr = pixels,
+                                      .subimage[0][0].size = size_bytes }
+    });
+
+    free(poss);
+    free(pixels);
+
+    return tex;
+}
+
 
 static void print_msg(const char* fmt, ...)
 {
@@ -74,7 +152,7 @@ static void init(void)
     });
 
     g_state.pass_action = (sg_pass_action) {
-        .colors[0] = { .action = SG_ACTION_CLEAR, .val = {1.0f, 0, 0, 1.0f} }
+        .colors[0] = { .action = SG_ACTION_CLEAR, .val = {0, 0, 0, 1.0f} }
     };
 
     static vertex vertices[] = {
@@ -129,6 +207,13 @@ static void init(void)
             .images[0] = {
                 .name = "tex_image",
                 .type = SG_IMAGETYPE_2D
+            },
+            .uniform_blocks[0] = {
+                .size = sizeof(float)*4,
+                .uniforms[0] =  {
+                    .name = "color",
+                    .type = SG_UNIFORMTYPE_FLOAT4
+                }
             }
         }
     });
@@ -148,6 +233,11 @@ static void init(void)
         .index_type = SG_INDEXTYPE_UINT16,
         .rasterizer = {
             .cull_mode = SG_CULLMODE_BACK
+        },
+        .blend = { 
+            .enabled = true,
+            .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+            .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA 
         }
     });
 
@@ -199,21 +289,75 @@ static void init(void)
     }
 
     g_state.tex = sg_make_image(&desc);
+
+    sdtx_setup(&(sdtx_desc_t) {
+        .fonts = {
+            [0] = sdtx_font_c64(),
+        },
+    });
+    sdtx_set_context(SDTX_DEFAULT_CONTEXT);
+    sdtx_canvas((float)sapp_width() * (1.0f/FONT_SCALE), (float)sapp_height() * (1.0f/FONT_SCALE));
+
+    uint32_t checker_colors[] = {
+        0xff999999,
+        0xff666666
+    };
+
+    if (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_ALPHA) {
+        g_state.checker = create_checker_texture(8,
+                                                 g_state.texinfo.width > g_state.texinfo.height ?
+                                                 nearest_pow2(g_state.texinfo.width) :
+                                                 nearest_pow2(g_state.texinfo.height),
+                                                 checker_colors);
+    }
+
+    g_state.color_mask[0] = g_state.color_mask[1] = g_state.color_mask[2] = g_state.color_mask[3] = 1.0f;
 }
 
 static void frame(void) 
 {
+    sdtx_home();
+    sdtx_origin(1, 1);
+    sdtx_pos(0, 0);
+    sdtx_color3b(!g_state.inv_text_color ? 255 : 0, !g_state.inv_text_color ? 255 : 0, 0);
+
+    sdtx_printf("%s\t%dx%d (%d mips)", 
+                ddsktx_format_str(g_state.texinfo.format), g_state.texinfo.width, 
+                g_state.texinfo.height, g_state.texinfo.num_mips);
+    sdtx_crlf();
+    sdtx_printf("mask: %c%c%c%c", 
+                g_state.color_mask[0] == 1.0f ? 'R' : 'X',
+                g_state.color_mask[1] == 1.0f ? 'G' : 'X',
+                g_state.color_mask[2] == 1.0f ? 'B' : 'X',
+                g_state.color_mask[3] == 1.0f ? 'A' : 'X');
+    sdtx_crlf();
+
     sg_begin_default_pass(&g_state.pass_action, sapp_width(), sapp_height());
     if (g_state.tex.id) {
         sg_bindings bindings = {
             .vertex_buffers[0] = g_state.vb,
             .index_buffer = g_state.ib,
-            .fs_images[0] = g_state.tex
         };
+
+        if (g_state.checker.id) {
+            bindings.fs_images[0] = g_state.checker;
+            const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+            sg_apply_pipeline(g_state.pip);
+            sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, white, sizeof(white));
+            sg_apply_bindings(&bindings);
+            sg_draw(0, 6, 1);
+        }
+
+
+        bindings.fs_images[0] = g_state.tex;
         sg_apply_pipeline(g_state.pip);
+        sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, g_state.color_mask, sizeof(g_state.color_mask));
         sg_apply_bindings(&bindings);
         sg_draw(0, 6, 1);
     }
+
+    sdtx_draw();
+
     sg_end_pass();
     sg_commit();
 }
@@ -221,7 +365,36 @@ static void frame(void)
 static void release(void)
 {
     free(g_state.file_data);
+    sdtx_shutdown();
     sg_shutdown();
+}
+
+static void on_events(const sapp_event* e)
+{
+    switch (e->type) {
+    case SAPP_EVENTTYPE_RESIZED:
+        sdtx_canvas((float)sapp_width() * (1.0f/FONT_SCALE), (float)sapp_height() * (1.0f/FONT_SCALE));
+        break;
+
+    case SAPP_EVENTTYPE_KEY_DOWN:
+        if (e->key_code == SAPP_KEYCODE_GRAVE_ACCENT) {
+            g_state.inv_text_color = !g_state.inv_text_color;
+        }
+        if (e->key_code == SAPP_KEYCODE_A) {
+            g_state.color_mask[3] = g_state.color_mask[3] == 1.0f ? 0 : 1.0f;
+        }
+        if (e->key_code == SAPP_KEYCODE_R) {
+            g_state.color_mask[0] = g_state.color_mask[0] == 1.0f ? 0 : 1.0f;
+        }
+        if (e->key_code == SAPP_KEYCODE_G) {
+            g_state.color_mask[1] = g_state.color_mask[1] == 1.0f ? 0 : 1.0f;
+        }
+        if (e->key_code == SAPP_KEYCODE_B) {
+            g_state.color_mask[2] = g_state.color_mask[2] == 1.0f ? 0 : 1.0f;
+        }
+
+        break;
+    }
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) 
@@ -274,9 +447,10 @@ sapp_desc sokol_main(int argc, char* argv[])
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = release,
+        .event_cb = on_events,
         .width = tc.width,
         .height = tc.height,
         .window_title = "DDS/KTX viewer",
-        .swap_interval = 2,
+        .swap_interval = 1,
     };
 }
