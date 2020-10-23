@@ -33,6 +33,13 @@
 
 #define FONT_SCALE 1.1f
 
+typedef struct uniforms 
+{
+    float color[4];
+    float args[4];
+} uniforms;
+
+
 typedef struct ctexview_state
 {
     sg_pass_action pass_action;
@@ -46,7 +53,8 @@ typedef struct ctexview_state
     sg_buffer ib;
     sg_image checker;
     bool inv_text_color;
-    float color_mask[4];
+    uniforms vars;
+    int cur_mip;
 } ctexview_state;
 
 ctexview_state g_state;
@@ -209,10 +217,10 @@ static void init(void)
                 .type = SG_IMAGETYPE_2D
             },
             .uniform_blocks[0] = {
-                .size = sizeof(float)*4,
-                .uniforms[0] =  {
-                    .name = "color",
-                    .type = SG_UNIFORMTYPE_FLOAT4
+                .size = sizeof(uniforms),
+                .uniforms =  {
+                    [0] = { .name = "color", .type = SG_UNIFORMTYPE_FLOAT4 },
+                    [1] = { .name = "target_lod", SG_UNIFORMTYPE_FLOAT4 }
                 }
             }
         }
@@ -311,7 +319,7 @@ static void init(void)
                                                  checker_colors);
     }
 
-    g_state.color_mask[0] = g_state.color_mask[1] = g_state.color_mask[2] = g_state.color_mask[3] = 1.0f;
+    g_state.vars.color[0] = g_state.vars.color[1] = g_state.vars.color[2] = g_state.vars.color[3] = 1.0f;
 }
 
 static void frame(void) 
@@ -321,16 +329,18 @@ static void frame(void)
     sdtx_pos(0, 0);
     sdtx_color3b(!g_state.inv_text_color ? 255 : 0, !g_state.inv_text_color ? 255 : 0, 0);
 
-    sdtx_printf("%s\t%dx%d (%d mips)", 
+    sdtx_printf("%s\t%dx%d (mip %d/%d)", 
                 ddsktx_format_str(g_state.texinfo.format), g_state.texinfo.width, 
-                g_state.texinfo.height, g_state.texinfo.num_mips);
+                g_state.texinfo.height, g_state.cur_mip, g_state.texinfo.num_mips);
     sdtx_crlf();
-    sdtx_printf("mask: %c%c%c%c", 
-                g_state.color_mask[0] == 1.0f ? 'R' : 'X',
-                g_state.color_mask[1] == 1.0f ? 'G' : 'X',
-                g_state.color_mask[2] == 1.0f ? 'B' : 'X',
-                g_state.color_mask[3] == 1.0f ? 'A' : 'X');
+    sdtx_printf("mask: %c%c%c%c\t", 
+                g_state.vars.color[0] == 1.0f ? 'R' : 'X',
+                g_state.vars.color[1] == 1.0f ? 'G' : 'X',
+                g_state.vars.color[2] == 1.0f ? 'B' : 'X',
+                g_state.vars.color[3] == 1.0f ? 'A' : 'X');
     sdtx_crlf();
+
+    g_state.vars.args[0] = (float)g_state.cur_mip;
 
     sg_begin_default_pass(&g_state.pass_action, sapp_width(), sapp_height());
     if (g_state.tex.id) {
@@ -341,9 +351,13 @@ static void frame(void)
 
         if (g_state.checker.id) {
             bindings.fs_images[0] = g_state.checker;
-            const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+            uniforms u = {
+                {1.0f, 1.0f, 1.0f, 1.0f},
+                {0, 0, 0, 0}
+            };
+
             sg_apply_pipeline(g_state.pip);
-            sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, white, sizeof(white));
+            sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, &u, sizeof(u));
             sg_apply_bindings(&bindings);
             sg_draw(0, 6, 1);
         }
@@ -351,7 +365,7 @@ static void frame(void)
 
         bindings.fs_images[0] = g_state.tex;
         sg_apply_pipeline(g_state.pip);
-        sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, g_state.color_mask, sizeof(g_state.color_mask));
+        sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, &g_state.vars, sizeof(g_state.vars));
         sg_apply_bindings(&bindings);
         sg_draw(0, 6, 1);
     }
@@ -381,16 +395,22 @@ static void on_events(const sapp_event* e)
             g_state.inv_text_color = !g_state.inv_text_color;
         }
         if (e->key_code == SAPP_KEYCODE_A) {
-            g_state.color_mask[3] = g_state.color_mask[3] == 1.0f ? 0 : 1.0f;
+            g_state.vars.color[3] = g_state.vars.color[3] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_R) {
-            g_state.color_mask[0] = g_state.color_mask[0] == 1.0f ? 0 : 1.0f;
+            g_state.vars.color[0] = g_state.vars.color[0] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_G) {
-            g_state.color_mask[1] = g_state.color_mask[1] == 1.0f ? 0 : 1.0f;
+            g_state.vars.color[1] = g_state.vars.color[1] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_B) {
-            g_state.color_mask[2] = g_state.color_mask[2] == 1.0f ? 0 : 1.0f;
+            g_state.vars.color[2] = g_state.vars.color[2] == 1.0f ? 0 : 1.0f;
+        }
+        if (e->key_code == SAPP_KEYCODE_UP) {
+            g_state.cur_mip = (g_state.cur_mip + 1) >= g_state.texinfo.num_mips ? (g_state.texinfo.num_mips - 1) : g_state.cur_mip + 1;
+        }
+        if (e->key_code == SAPP_KEYCODE_DOWN) {
+            g_state.cur_mip = (g_state.cur_mip > 0) ? g_state.cur_mip - 1 : 0;
         }
 
         break;
