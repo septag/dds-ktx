@@ -451,6 +451,6 @@ sapp_desc sokol_main(int argc, char* argv[])
         .width = tc.width,
         .height = tc.height,
         .window_title = "DDS/KTX viewer",
-        .swap_interval = 1,
+        .swap_interval = 2,
     };
 }
