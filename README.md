@@ -25,7 +25,16 @@ to view images just provide the image path as an argument:
 ctexview [dds_or_ktx_image_file_path]
 ```
 
-Used open-source libraries for app creation/graphics: [sokol](https://github.com/floooh/sokol)
+Used open-source libraries for app creation/graphics: [**Sokol**](https://github.com/floooh/sokol)
+
+**Keys:**
+    - UP/DOWN: change current mipmap
+    - Apostrophe: change text color
+    - F: Next cube-map face
+    - R: Toggle Red channel
+    - G: Toggle Green channel
+    - B: Toggle Blue channel
+    - A: Toggle Alpha channel
 
 ### Usage
 In this example, a simple 2D texture is parsed and created using OpenGL
