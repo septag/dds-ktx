@@ -3,8 +3,8 @@
 // 
 #pragma once
 
-static const unsigned int quad__fs_size = 382;
-static const unsigned int quad__fs_data[384/4] = {
+static const unsigned int quad_fs_size = 382;
+static const unsigned int quad_fs_data[384/4] = {
 	0x72657623, 0x6e6f6973, 0x30333320, 0x6e750a0a, 0x726f6669, 0x6576206d, 0x67203463, 0x61626f6c, 
 	0x325b736c, 0x750a3b5d, 0x6f66696e, 0x73206d72, 0x6c706d61, 0x44327265, 0x78657420, 0x616d695f, 
 	0x0a3b6567, 0x79616c0a, 0x2874756f, 0x61636f6c, 0x6e6f6974, 0x30203d20, 0x756f2029, 0x65762074, 

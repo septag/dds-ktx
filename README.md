@@ -16,7 +16,7 @@ cl ctexview.c /O2
 
 Linux:
 ```
-gcc ctexview.c -O2 -lGL -ldl -lX11 -lXi -lXcursor -o ctexview
+gcc ctexview.c -O2 -lGL -ldl -lX11 -lXi -lXcursor -lm -o ctexview
 ```
 
 to view images just provide the image path as an argument:

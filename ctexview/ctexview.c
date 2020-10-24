@@ -610,8 +610,8 @@ sapp_desc sokol_main(int argc, char* argv[])
         .frame_cb = frame,
         .cleanup_cb = release,
         .event_cb = on_events,
-        .width = tc.width < desktop_w ? tc.width : desktop_w,
-        .height = tc.height < desktop_h ? tc.height : desktop_h,
+        .width = window_w,
+        .height = window_h,
         .window_title = "DDS/KTX viewer",
         .swap_interval = 2,
         .sample_count = 1
