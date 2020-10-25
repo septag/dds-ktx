@@ -8,7 +8,7 @@
 // Copyright 2011-2019 Branimir Karadzic. All rights reserved.
 // License: https://github.com/bkaradzic/bimg#license-bsd-2-clause
 //
-// dds-ktx.h - v1.0.0 - Reader/Writer for DDS/KTX formats
+// dds-ktx.h - v1.1.0 - Reader/Writer for DDS/KTX formats
 //      Parses DDS and KTX files from a memory blob, written in C99
 //      
 //      Supported formats:
@@ -70,6 +70,7 @@
 //      1.0.0       Api change: ddsktx_sub_data
 //                  Added KTX support
 //      1.0.1       Fixed major bugs in KTX parsing
+//      1.1.0       Fixed bugs in get_sub routine, refactored some parts, image-viewer example
 //
 // TODO
 //      Write KTX/DDS

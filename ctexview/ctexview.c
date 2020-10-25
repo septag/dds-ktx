@@ -36,13 +36,18 @@
 #include "sokol_debugtext.h"
 
 #define FONT_SCALE 1.1f
+#define CHECKER_SIZE 8
 
-
-typedef struct uniforms 
+typedef struct uniforms_fs 
 {
     float color[4];
     float args[4];
-} uniforms;
+} uniforms_fs;
+
+typedef struct uniforms_vs
+{
+    float proj_mat[16];
+} uniforms_vs;
 
 typedef struct vertex
 {
@@ -65,11 +70,13 @@ typedef struct ctexview_state
     sg_shader shader_cubemap;
     sg_pipeline pip;
     sg_pipeline pip_cubemap;
+    sg_pipeline pip_checker;
     sg_buffer vb;
     sg_buffer ib;
+    sg_buffer vb_checker;
     sg_image checker;
     bool inv_text_color;
-    uniforms vars;
+    uniforms_fs vars_fs;
     int cur_mip;
     int cur_slice;
     int cube_face;
@@ -136,23 +143,100 @@ static void convert_cube_uv_to_xyz(int index, float u, float v, float* x, float*
 
 static void set_cube_face(int index)
 {
-    assert(index >= 0 && index < DDSKTX_CUBE_FACE_COUNT);
-    assert (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_CUBEMAP);
+    if (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_CUBEMAP) {
+        assert(index >= 0 && index < DDSKTX_CUBE_FACE_COUNT);
 
-    vertex* vertices = alloca(sizeof(vertex)*4);
-    assert(vertices);
+        vertex vertices[4];
+        memcpy(vertices, k_vertices, sizeof(k_vertices));
+
+        for (int i = 0; i < 4; i++) {
+            float x, y, z;
+            convert_cube_uv_to_xyz(index, vertices[i].u, vertices[i].v, &x, &y, &z);
+            vertices[i].u = x;
+            vertices[i].v = y;
+            vertices[i].w = z;
+        }
+
+        sg_update_buffer(g_state.vb, vertices, sizeof(vertices));
+    }
+}
+
+static void adjust_checker_coords(int width, int height)
+{
+    int count_x = width/CHECKER_SIZE;
+    int count_y = height/CHECKER_SIZE;
+
+    float ratio = (float)width / (float)height;
+    float u, v;
+    if (width > height) {
+        u = (float)count_x;
+        v = (float)count_y * ratio;
+    }
+    else {
+        v = (float)count_y;
+        u = (float)count_x / ratio;
+    }
+
+    vertex vertices[4];
     memcpy(vertices, k_vertices, sizeof(k_vertices));
 
     for (int i = 0; i < 4; i++) {
-        float x, y, z;
-        convert_cube_uv_to_xyz(index, vertices[i].u, vertices[i].v, &x, &y, &z);
-        vertices[i].u = x;
-        vertices[i].v = y;
-        vertices[i].w = z;
+        vertices[i].u = vertices[i].u != 0 ? u : 0;
+        vertices[i].v = vertices[i].v != 0 ? v : 0;
     }
-
-    sg_update_buffer(g_state.vb, vertices, sizeof(k_vertices));
+    sg_update_buffer(g_state.vb_checker, vertices, sizeof(vertices));
 }
+
+static void sx_mat4_ortho(float mat[16], float width, float height, float zn, float zf, float offset, bool ogl_ndc)
+{
+    const float d = zf - zn;
+    const float cc = (ogl_ndc ? 2.0f : 1.0f) / d;
+    const float ff = ogl_ndc ? -(zn + zf) / d : -zn / d;
+
+    mat[0] = 2.0f / width;
+    mat[1] = 0;
+    mat[2] = 0;
+    mat[3] = 0;
+
+    mat[4] = 0;
+    mat[5] = 2.0f / height;
+    mat[6] = 0;
+    mat[7] = 0;
+
+    mat[8] = 0;
+    mat[9] = 0;
+    mat[10] = -cc;
+    mat[11] = 0;
+
+    mat[12] = offset;
+    mat[13] = 0;
+    mat[14] = ff;
+    mat[15] = 1.0f;
+}
+
+static void sx_mat4_ident(float mat[16])
+{
+    mat[0] = 1.0f;
+    mat[1] = 0;
+    mat[2] = 0;
+    mat[3] = 0;
+
+    mat[4] = 0;
+    mat[5] = 1.0f;
+    mat[6] = 0;
+    mat[7] = 0;
+
+    mat[8] = 0;
+    mat[9] = 0;
+    mat[10] = 1.0f;
+    mat[11] = 0;
+
+    mat[12] = 0;
+    mat[13] = 0;
+    mat[14] = 0;
+    mat[15] = 1.0f;
+}
+
 
 static sg_image create_checker_texture(int checker_size, int size, uint32_t colors[2])
 {
@@ -244,8 +328,14 @@ static sg_shader_desc get_shader_desc(const void* vs_data, uint32_t vs_size, con
                 .source = (const char*)vs_data,
             #endif
             #ifdef SOKOL_METAL
-                .entry = "main0"
+                .entry = "main0",
             #endif
+                .uniform_blocks[0] = {
+                    .size = sizeof(uniforms_vs),
+                    .uniforms = {
+                        [0] = {.name = "proj_mat", .type = SG_UNIFORMTYPE_MAT4 },
+                    }
+                }
         },
             .fs = {
             #ifdef SOKOL_D3D11
@@ -262,7 +352,7 @@ static sg_shader_desc get_shader_desc(const void* vs_data, uint32_t vs_size, con
                     .type = imgtype
                 },
                 .uniform_blocks[0] = {
-                    .size = sizeof(uniforms),
+                    .size = sizeof(uniforms_fs),
                     .uniforms = {
                         [0] = {.name = "color", .type = SG_UNIFORMTYPE_FLOAT4 },
                         [1] = {.name = "target_lod", SG_UNIFORMTYPE_FLOAT4 }
@@ -285,6 +375,12 @@ static void init(void)
     };
 
     g_state.vb = sg_make_buffer(&(sg_buffer_desc) {
+        .usage = SG_USAGE_DYNAMIC,
+        .type = SG_BUFFERTYPE_VERTEXBUFFER,
+        .size = sizeof(k_vertices)
+    });
+
+    g_state.vb_checker = sg_make_buffer(&(sg_buffer_desc) {
         .usage = SG_USAGE_DYNAMIC,
         .type = SG_BUFFERTYPE_VERTEXBUFFER,
         .size = sizeof(k_vertices)
@@ -349,6 +445,8 @@ static void init(void)
         sg_update_buffer(g_state.vb, k_vertices, sizeof(k_vertices));
     }
 
+    adjust_checker_coords(sapp_width(), sapp_height());
+
     sg_image_desc desc = {
         .type = imgtype,
         .width = g_state.texinfo.width,
@@ -410,15 +508,9 @@ static void init(void)
 
     uint32_t checker_colors[] = { 0xff999999, 0xff666666 };
 
-    if (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_ALPHA) {
-        g_state.checker = create_checker_texture(8,
-                                                 g_state.texinfo.width > g_state.texinfo.height ?
-                                                 nearest_pow2(g_state.texinfo.width) :
-                                                 nearest_pow2(g_state.texinfo.height),
-                                                 checker_colors);
-    }
+    g_state.checker = create_checker_texture(8, 16, checker_colors);
 
-    g_state.vars.color[0] = g_state.vars.color[1] = g_state.vars.color[2] = g_state.vars.color[3] = 1.0f;
+    g_state.vars_fs.color[0] = g_state.vars_fs.color[1] = g_state.vars_fs.color[2] = g_state.vars_fs.color[3] = 1.0f;
 }
 
 static const char* texture_type_info()
@@ -447,46 +539,79 @@ static void frame(void)
 
     sdtx_printf("%s\t%dx%d (mip %d/%d)", 
                 ddsktx_format_str(g_state.texinfo.format), g_state.texinfo.width, 
-                g_state.texinfo.height, g_state.cur_mip, g_state.texinfo.num_mips);
+                g_state.texinfo.height, g_state.cur_mip + 1, g_state.texinfo.num_mips);
     sdtx_crlf();
     sdtx_printf("%s\tmask: %c%c%c%c\t", 
                 texture_type_info(),
-                g_state.vars.color[0] == 1.0f ? 'R' : 'X',
-                g_state.vars.color[1] == 1.0f ? 'G' : 'X',
-                g_state.vars.color[2] == 1.0f ? 'B' : 'X',
-                g_state.vars.color[3] == 1.0f ? 'A' : 'X');
+                g_state.vars_fs.color[0] == 1.0f ? 'R' : 'X',
+                g_state.vars_fs.color[1] == 1.0f ? 'G' : 'X',
+                g_state.vars_fs.color[2] == 1.0f ? 'B' : 'X',
+                g_state.vars_fs.color[3] == 1.0f ? 'A' : 'X');
     sdtx_crlf();
 
-    g_state.vars.args[0] = (float)g_state.cur_mip;
+    g_state.vars_fs.args[0] = (float)g_state.cur_mip;
 
     sg_begin_default_pass(&g_state.pass_action, sapp_width(), sapp_height());
     if (g_state.tex.id) {
         sg_bindings bindings = {
-            .vertex_buffers[0] = g_state.vb,
             .index_buffer = g_state.ib,
         };
 
         if (g_state.checker.id) {
             bindings.fs_images[0] = g_state.checker;
-            uniforms u = {
+            bindings.vertex_buffers[0] = g_state.vb_checker;
+            uniforms_fs ufs = {
                 {1.0f, 1.0f, 1.0f, 1.0f},
                 {0, 0, 0, 0}
             };
 
+            uniforms_vs uvs;
+
+            float ratio = (float)sapp_width() / (float)sapp_height();
+            float w = 1.0f, h = 1.0f;
+            if (sapp_width() > sapp_height()) {
+                h = w/ratio;
+            } else {
+                w = h*ratio;
+            }
+            sx_mat4_ortho(uvs.proj_mat, w, h, -1.0f, 1.0f, 0, false);
+
             sg_apply_pipeline(g_state.pip);
-            sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, &u, sizeof(u));
+            sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, &uvs, sizeof(uvs));
+            sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, &ufs, sizeof(ufs));
             sg_apply_bindings(&bindings);
             sg_draw(0, 6, 1);
         }
 
 
+        uniforms_vs uvs;
+        sx_mat4_ident(uvs.proj_mat);
         bindings.fs_images[0] = g_state.tex;
+        bindings.vertex_buffers[0] = g_state.vb;
+
+        // for the image to the window and keep the ratio
+        int w = g_state.texinfo.width;
+        int h = g_state.texinfo.height;
+        {
+            float ratio_outer = (float)sapp_width() / (float)sapp_height();
+            float ratio_inner = (float)w / (float)h;
+            float scale = (ratio_inner >= ratio_outer) ? 
+                ((float)sapp_width()/(float)w) : 
+                ((float)sapp_height()/(float)h);
+            w = (int)((float)w * scale);
+            h = (int)((float)h * scale);
+        }
+
+        sg_apply_viewport((sapp_width() - w)/2, (sapp_height() - h)/2, w, h, true);
+
         sg_apply_pipeline((g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_CUBEMAP) ? g_state.pip_cubemap : g_state.pip);
-        sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, &g_state.vars, sizeof(g_state.vars));
+        sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, &uvs, sizeof(uvs));
+        sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, &g_state.vars_fs, sizeof(g_state.vars_fs));
         sg_apply_bindings(&bindings);
         sg_draw(0, 6, 1);
     }
 
+    sg_apply_viewport(0, 0, sapp_width(), sapp_height(), true);
     sdtx_draw();
 
     sg_end_pass();
@@ -496,6 +621,16 @@ static void frame(void)
 static void release(void)
 {
     free(g_state.file_data);
+    sg_destroy_pipeline(g_state.pip);
+    sg_destroy_pipeline(g_state.pip_checker);
+    sg_destroy_pipeline(g_state.pip_cubemap);
+    sg_destroy_shader(g_state.shader);
+    sg_destroy_shader(g_state.shader_cubemap);
+    sg_destroy_buffer(g_state.vb);
+    sg_destroy_buffer(g_state.vb_checker);
+    sg_destroy_buffer(g_state.ib);
+    sg_destroy_image(g_state.tex);
+    sg_destroy_image(g_state.checker);
     sdtx_shutdown();
     sg_shutdown();
 }
@@ -505,6 +640,7 @@ static void on_events(const sapp_event* e)
     switch (e->type) {
     case SAPP_EVENTTYPE_RESIZED:
         sdtx_canvas((float)sapp_width() * (1.0f/FONT_SCALE), (float)sapp_height() * (1.0f/FONT_SCALE));
+        adjust_checker_coords(e->window_width, e->window_height);
         break;
 
     case SAPP_EVENTTYPE_KEY_DOWN:
@@ -512,16 +648,16 @@ static void on_events(const sapp_event* e)
             g_state.inv_text_color = !g_state.inv_text_color;
         }
         if (e->key_code == SAPP_KEYCODE_A) {
-            g_state.vars.color[3] = g_state.vars.color[3] == 1.0f ? 0 : 1.0f;
+            g_state.vars_fs.color[3] = g_state.vars_fs.color[3] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_R) {
-            g_state.vars.color[0] = g_state.vars.color[0] == 1.0f ? 0 : 1.0f;
+            g_state.vars_fs.color[0] = g_state.vars_fs.color[0] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_G) {
-            g_state.vars.color[1] = g_state.vars.color[1] == 1.0f ? 0 : 1.0f;
+            g_state.vars_fs.color[1] = g_state.vars_fs.color[1] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_B) {
-            g_state.vars.color[2] = g_state.vars.color[2] == 1.0f ? 0 : 1.0f;
+            g_state.vars_fs.color[2] = g_state.vars_fs.color[2] == 1.0f ? 0 : 1.0f;
         }
         if (e->key_code == SAPP_KEYCODE_UP) {
             g_state.cur_mip = (g_state.cur_mip + 1) >= g_state.texinfo.num_mips ? (g_state.texinfo.num_mips - 1) : g_state.cur_mip + 1;
