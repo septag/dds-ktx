@@ -29,13 +29,13 @@ Used open-source libraries for app creation/graphics: [**Sokol**](https://github
 
 **Keys:**
 
-    - UP/DOWN: change current mipmap
-    - Apostrophe: change text color
-    - F: Next cube-map face
-    - R: Toggle Red channel
-    - G: Toggle Green channel
-    - B: Toggle Blue channel
-    - A: Toggle Alpha channel
+- UP/DOWN: change current mipmap
+- Apostrophe: change text color
+- F: Next cube-map face
+- R: Toggle Red channel
+- G: Toggle Green channel
+- B: Toggle Blue channel
+- A: Toggle Alpha channel
 
 ### Usage
 In this example, a simple 2D texture is parsed and created using OpenGL
