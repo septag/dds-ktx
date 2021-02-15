@@ -74,6 +74,9 @@ if (ddsktx_parse(&tc, dds_data, size, NULL)) {
 }
 ```
 
+### Links
+- [DdsKtxSharp](https://github.com/rds1983/DdsKtxSharp): C# Wrapper for dds-ktx
+
 ### TODO
 
 - Write KTX/DDS
