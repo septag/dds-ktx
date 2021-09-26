@@ -21,7 +21,7 @@ gcc ctexview.c -O2 -lGL -ldl -lX11 -lXi -lXcursor -lm -o ctexview
 
 **MacOS**
 ```
-clang -framework Foundation -framework CoreServices -framework CoreFoundation -fobjc-arc -x objective-c -fmodules -x objective-c ctexview.c -o ./ctexview
+clang -framework Foundation -framework CoreServices -framework CoreFoundation -O2 -fobjc-arc -x objective-c -fmodules -x objective-c ctexview.c -o ./ctexview
 ```
 
 to view images just provide the image path as an argument:
