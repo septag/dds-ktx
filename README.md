@@ -9,14 +9,19 @@
 ### Build Example (ctexview)
 [**ctexview**](ctexview/ctexview.c) is a tiny ddx-ktx viewer that can be built on linux/mac and windows. To build it just compile the single file with your compiler.
 
-Windows:
+**Windows:**
 ```
 cl ctexview.c /O2
 ```
 
-Linux:
+**Linuxx**
 ```
 gcc ctexview.c -O2 -lGL -ldl -lX11 -lXi -lXcursor -lm -o ctexview
+```
+
+**MacOS**
+```
+clang -framework Foundation -framework CoreServices -framework CoreFoundation -fobjc-arc -x objective-c -fmodules -x objective-c ctexview.c -o ./ctexview
 ```
 
 to view images just provide the image path as an argument:

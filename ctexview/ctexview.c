@@ -21,13 +21,17 @@
 #define SOKOL_IMPL
 #define DDSKTX_IMPLEMENT
 
+#define SOKOL_API_DECL static
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 
+#define DDSKTX_API static
 #include "../dds-ktx.h"
 
-#include <malloc.h>
+#ifndef __APPLE__
+#   include <malloc.h>
+#endif
 #include <stdio.h>
 #include <assert.h>
 #include <stdarg.h>
