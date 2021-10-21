@@ -156,7 +156,8 @@ typedef enum ddsktx_texture_flags
     DDSKTX_TEXTURE_FLAG_SRGB    = 0x02,        
     DDSKTX_TEXTURE_FLAG_ALPHA   = 0x04,       // Has alpha channel
     DDSKTX_TEXTURE_FLAG_DDS     = 0x08,       // container was DDS file
-    DDSKTX_TEXTURE_FLAG_KTX     = 0x10        // container was KTX file
+    DDSKTX_TEXTURE_FLAG_KTX     = 0x10,       // container was KTX file
+    DDSKTX_TEXTURE_FLAG_VOLUME  = 0x20,       // 3D volume
 } ddsktx_texture_flags;
 
 typedef struct ddsktx_texture_info
@@ -1006,6 +1007,7 @@ static bool ddsktx__parse_dds(ddsktx_texture_info* tc, const void* file_data, in
     if (cubemap && (header.caps2 & DDSKTX__DDSCAPS2_CUBEMAP_ALLSIDES) != DDSKTX__DDSCAPS2_CUBEMAP_ALLSIDES) {
         ddsktx__err(err, "dds: incomplete cubemap");
     }
+    bool volume = (header.caps2 & DDSKTX__DDSCAPS2_VOLUME) != 0;
 
     ddsktx_format format = _DDSKTX_FORMAT_COUNT;
     bool has_alpha = (header.pixel_format.flags & DDSKTX__DDPF_ALPHA) != 0;
@@ -1065,6 +1067,8 @@ static bool ddsktx__parse_dds(ddsktx_texture_info* tc, const void* file_data, in
         tc->flags |= DDSKTX_TEXTURE_FLAG_ALPHA;
     if (cubemap)
         tc->flags |= DDSKTX_TEXTURE_FLAG_CUBEMAP;
+    if (volume)
+        tc->flags |= DDSKTX_TEXTURE_FLAG_VOLUME;
     if (srgb) 
         tc->flags |= DDSKTX_TEXTURE_FLAG_SRGB;
     tc->flags |= DDSKTX_TEXTURE_FLAG_DDS;
