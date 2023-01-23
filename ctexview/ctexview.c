@@ -39,6 +39,12 @@
 #define SOKOL_DEBUGTEXT_IMPL
 #include "sokol_debugtext.h"
 
+#include "astcenc/include/astcenc.h"
+
+
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize.h"
+
 #define FONT_SCALE 1.1f
 #define CHECKER_SIZE 8
 
@@ -62,6 +68,11 @@ typedef struct vertex
     float w; // reserved for cubemapping
 } vertex;
 
+typedef struct image_size
+{
+	int width;
+	int height;
+} image_size;
 
 typedef struct ctexview_state
 {
@@ -70,6 +81,7 @@ typedef struct ctexview_state
     int file_size;
     ddsktx_texture_info texinfo;
     sg_image tex;
+	image_size mip_sizes[SG_MAX_MIPMAPS];
     sg_shader shader;
     sg_shader shader_cubemap;
     sg_pipeline pip;
@@ -461,6 +473,8 @@ static void init(void)
         .mag_filter = SG_FILTER_NEAREST
     };
 
+	bool is_astc = false;
+
     switch (g_state.texinfo.format) {
     case DDSKTX_FORMAT_BC1:     desc.pixel_format = SG_PIXELFORMAT_BC1_RGBA; break;
     case DDSKTX_FORMAT_BC2:     desc.pixel_format = SG_PIXELFORMAT_BC2_RGBA; break;
@@ -487,18 +501,140 @@ static void init(void)
     case DDSKTX_FORMAT_RG11B10F: desc.pixel_format = SG_PIXELFORMAT_RG11B10F; break;
     case DDSKTX_FORMAT_RG8:      desc.pixel_format = SG_PIXELFORMAT_RG8; break;
     case DDSKTX_FORMAT_RG8S:     desc.pixel_format = SG_PIXELFORMAT_RG8; break;
+	case DDSKTX_FORMAT_ASTC_4x4: 
+	case DDSKTX_FORMAT_ASTC_5x5:
+	case DDSKTX_FORMAT_ASTC_6x6:
+	case DDSKTX_FORMAT_ASTC_8x8:
+	case DDSKTX_FORMAT_ASTC_10x10:
+	case DDSKTX_FORMAT_ASTC_12x12:
+		desc.pixel_format = SG_PIXELFORMAT_RGBA8; 
+		is_astc = true;
+		break;
     default:    assert(0); exit(-1);
-    }    
-
-    int num_faces = imgtype == SG_IMAGETYPE_CUBE ? 6 : 1;
-    for (int face = 0; face < num_faces; face++) {
-        for (int mip = 0; mip < g_state.texinfo.num_mips; mip++) {
-            ddsktx_sub_data subdata;
-            ddsktx_get_sub(&g_state.texinfo, &subdata, g_state.file_data, g_state.file_size, 0, face, mip);
-            desc.content.subimage[face][mip].ptr = subdata.buff;
-            desc.content.subimage[face][mip].size = subdata.size_bytes;
-        }
     }
+
+	int num_faces = imgtype == SG_IMAGETYPE_CUBE ? 6 : 1;
+
+	if (is_astc) {
+		ddsktx_texture_info* dds = &g_state.texinfo;
+
+		astcenc_profile prf = (dds->flags&DDSKTX_TEXTURE_FLAG_SRGB) ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR;
+		astcenc_config config = { 0 };
+		astcenc_context* decoder;
+
+		uint32_t block_size = 0;
+		switch (dds->format) {
+			case DDSKTX_FORMAT_ASTC_4x4: 	block_size = 4;  break;
+			case DDSKTX_FORMAT_ASTC_5x5:	block_size = 5;  break;
+			case DDSKTX_FORMAT_ASTC_6x6:	block_size = 6;  break;
+			case DDSKTX_FORMAT_ASTC_8x8:	block_size = 8;  break;
+			case DDSKTX_FORMAT_ASTC_10x10:	block_size = 10; break;
+			case DDSKTX_FORMAT_ASTC_12x12:	block_size = 12; break;
+			default:						assert(0);
+		}
+		astcenc_config_init(prf, block_size, block_size, 1, 0, 0, &config);
+		astcenc_error r =  astcenc_context_alloc(&config, 1, &decoder);
+		assert(r == ASTCENC_SUCCESS);
+		
+		astcenc_swizzle swizzle = {
+			.r = ASTCENC_SWZ_R,
+			.g = ASTCENC_SWZ_G,
+			.b = ASTCENC_SWZ_B,
+			.a = ASTCENC_SWZ_A
+		};
+
+		astcenc_image img = {
+			.dim_x = dds->width, 
+			.dim_y = dds->height,
+			.dim_z = 1,
+			.data_type = ASTCENC_TYPE_U8
+		};
+
+		int first_slice_size = dds->width * dds->height * 4;
+		img.data = malloc(sizeof(void*) * num_faces);
+		uint8_t* compressed_buff = NULL;
+		uint32_t compressed_buff_size = 0;
+
+		for (int face = 0; face < num_faces; face++) {
+			img.data[face] = malloc(first_slice_size);
+
+			ddsktx_sub_data subdata;
+			ddsktx_get_sub(dds, &subdata, g_state.file_data, g_state.file_size, 0, face, 0);
+			
+			compressed_buff = (uint8_t*)realloc(compressed_buff, compressed_buff_size + subdata.size_bytes);
+			memcpy(compressed_buff + compressed_buff_size, subdata.buff, subdata.size_bytes);
+			compressed_buff_size += subdata.size_bytes;
+		}
+
+		r = astcenc_decompress_image(decoder, compressed_buff, compressed_buff_size, &img, &swizzle, 0);
+		assert(r == ASTCENC_SUCCESS);
+
+		for (int face = 0; face < num_faces; face++) {
+			int w = dds->width;
+			int h = dds->height;
+
+			uint8_t* src_buff = (uint8_t*)malloc(w*h*4);
+			uint8_t* src_buff_main = src_buff;
+			memcpy(src_buff, img.data[face], w*h*4);
+
+			desc.content.subimage[face][0].ptr = src_buff;
+			desc.content.subimage[face][0].size = first_slice_size;
+			g_state.mip_sizes[0].width = w;
+			g_state.mip_sizes[0].height = h;
+			for (int mip = 1; mip < dds->num_mips && mip < SG_MAX_MIPMAPS; mip++) {
+				int resized_w = w >> 1;
+				int resized_h = h >> 1;
+                if (resized_w == 0)
+                    resized_w = 1;
+                if (resized_h == 0)
+                    resized_h = 1;
+
+				uint8_t* resized_buff = (uint8_t*)malloc(resized_w*resized_h*4);
+
+				stbir_resize_uint8(src_buff, w, h, 0, resized_buff, resized_w, resized_h, 0, 4);
+
+				w = resized_w;
+				h = resized_h;
+
+				desc.content.subimage[face][mip].ptr = resized_buff;
+				desc.content.subimage[face][mip].size = w*h*4;
+				g_state.mip_sizes[mip].width = w;
+				g_state.mip_sizes[mip].height = h;
+
+				src_buff = resized_buff;
+			}
+		}
+
+		free(compressed_buff);
+		astcenc_context_free(decoder);
+		for (int i = 0; i < num_faces; i++) 
+			free(img.data[i]);
+		free(img.data);
+	}	
+	else {
+		ddsktx_texture_info* dds = &g_state.texinfo;
+		for (int face = 0; face < num_faces; face++) {
+			int w = dds->width;
+			int h = dds->height;
+
+			for (int mip = 0; mip < g_state.texinfo.num_mips; mip++) {
+				ddsktx_sub_data subdata;
+				ddsktx_get_sub(dds, &subdata, g_state.file_data, g_state.file_size, 0, face, mip);
+
+				desc.content.subimage[face][mip].ptr = subdata.buff;
+				desc.content.subimage[face][mip].size = subdata.size_bytes;
+				g_state.mip_sizes[mip].width = w;
+				g_state.mip_sizes[mip].height = h;
+
+				w >>= 1;
+				h >>= 1;
+				if (w == 0)
+					w = 1;
+				if (h == 0)
+					h = 1;
+			}
+		}
+	}	// !is_astc
 
     g_state.tex = sg_make_image(&desc);
 
@@ -542,8 +678,10 @@ static void frame(void)
     sdtx_color3b(!g_state.inv_text_color ? 255 : 0, !g_state.inv_text_color ? 255 : 0, 0);
 
     sdtx_printf("%s\t%dx%d (mip %d/%d)", 
-                ddsktx_format_str(g_state.texinfo.format), g_state.texinfo.width, 
-                g_state.texinfo.height, g_state.cur_mip + 1, g_state.texinfo.num_mips);
+                ddsktx_format_str(g_state.texinfo.format), 
+                g_state.mip_sizes[g_state.cur_mip].width, 
+                g_state.mip_sizes[g_state.cur_mip].height, 
+                g_state.cur_mip + 1, g_state.texinfo.num_mips);
     sdtx_crlf();
     sdtx_printf("%s\tmask: %c%c%c%c\t", 
                 texture_type_info(),

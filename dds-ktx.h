@@ -122,12 +122,12 @@ typedef enum ddsktx_format
     DDSKTX_FORMAT_ATC,         // ATC RGB 4BPP
     DDSKTX_FORMAT_ATCE,        // ATCE RGBA 8 BPP explicit alpha
     DDSKTX_FORMAT_ATCI,        // ATCI RGBA 8 BPP interpolated alpha
-    DDSKTX_FORMAT_ASTC4x4,     // ASTC 4x4 8.0 BPP
-    DDSKTX_FORMAT_ASTC5x5,     // ASTC 5x5 5.12 BPP
-    DDSKTX_FORMAT_ASTC6x6,     // ASTC 6x6 3.56 BPP
-    DDSKTX_FORMAT_ASTC8x5,     // ASTC 8x5 3.20 BPP
-    DDSKTX_FORMAT_ASTC8x6,     // ASTC 8x6 2.67 BPP
-    DDSKTX_FORMAT_ASTC10x5,    // ASTC 10x5 2.56 BPP
+	DDSKTX_FORMAT_ASTC_4x4,
+	DDSKTX_FORMAT_ASTC_5x5,
+	DDSKTX_FORMAT_ASTC_6x6,
+	DDSKTX_FORMAT_ASTC_8x8,
+	DDSKTX_FORMAT_ASTC_10x10,
+	DDSKTX_FORMAT_ASTC_12x12,
     _DDSKTX_FORMAT_COMPRESSED,
     DDSKTX_FORMAT_A8,
     DDSKTX_FORMAT_R8,
@@ -234,12 +234,20 @@ DDSKTX_API bool        ddsktx_format_compressed(ddsktx_format format);
 #define DDSKTX__DDS_ATC         stc__makefourcc('A', 'T', 'C', ' ')
 #define DDSKTX__DDS_ATCE        stc__makefourcc('A', 'T', 'C', 'E')
 #define DDSKTX__DDS_ATCI        stc__makefourcc('A', 'T', 'C', 'I')
-#define DDSKTX__DDS_ASTC4x4     stc__makefourcc('A', 'S', '4', '4')
-#define DDSKTX__DDS_ASTC5x5     stc__makefourcc('A', 'S', '5', '5')
-#define DDSKTX__DDS_ASTC6x6     stc__makefourcc('A', 'S', '6', '6')
-#define DDSKTX__DDS_ASTC8x5     stc__makefourcc('A', 'S', '8', '5')
-#define DDSKTX__DDS_ASTC8x6     stc__makefourcc('A', 'S', '8', '6')
-#define DDSKTX__DDS_ASTC10x5    stc__makefourcc('A', 'S', ':', '5')
+
+// ASTC formats 
+#define DDSKTX__DDS_ASTC_4X4_UNORM 			134
+#define DDSKTX__DDS_ASTC_4X4_UNORM_SRGB 	135
+#define DDSKTX__DDS_ASTC_5X5_UNORM 			142
+#define DDSKTX__DDS_ASTC_5X5_UNORM_SRGB 	143
+#define DDSKTX__DDS_ASTC_6X6_UNORM 			150
+#define DDSKTX__DDS_ASTC_6X6_UNORM_SRGB 	151
+#define DDSKTX__DDS_ASTC_8X8_UNORM 			162
+#define DDSKTX__DDS_ASTC_8X8_UNORM_SRGB 	163
+#define DDSKTX__DDS_ASTC_10X10_UNORM 		178
+#define DDSKTX__DDS_ASTC_10X10_UNORM_SRGB 	179
+#define DDSKTX__DDS_ASTC_12X12_UNORM 		186
+#define DDSKTX__DDS_ASTC_12X12_UNORM_SRGB   187
 
 #define DDSKTX__DDS_R8G8B8         20
 #define DDSKTX__DDS_A8R8G8B8       21
@@ -399,7 +407,7 @@ typedef struct ddsktx__ktx_header
 typedef struct ddsktx__dds_translate_fourcc_format
 {
     uint32_t            dds_format;
-    ddsktx_format  format;
+    ddsktx_format  		format;
     bool                srgb;
 } ddsktx__dds_translate_fourcc_format;
 
@@ -487,12 +495,6 @@ static const ddsktx__dds_translate_fourcc_format k__translate_dds_fourcc[] = {
     { DDSKTX__DDS_ATC ,                  DDSKTX_FORMAT_ATC,      false },
     { DDSKTX__DDS_ATCE,                  DDSKTX_FORMAT_ATCE,     false },
     { DDSKTX__DDS_ATCI,                  DDSKTX_FORMAT_ATCI,     false },
-    { DDSKTX__DDS_ASTC4x4,               DDSKTX_FORMAT_ASTC4x4,  false },
-    { DDSKTX__DDS_ASTC5x5,               DDSKTX_FORMAT_ASTC5x5,  false },
-    { DDSKTX__DDS_ASTC6x6,               DDSKTX_FORMAT_ASTC6x6,  false },
-    { DDSKTX__DDS_ASTC8x5,               DDSKTX_FORMAT_ASTC8x5,  false },
-    { DDSKTX__DDS_ASTC8x6,               DDSKTX_FORMAT_ASTC8x6,  false },
-    { DDSKTX__DDS_ASTC10x5,              DDSKTX_FORMAT_ASTC10x5, false },
     { DDSKTX__DDS_A16B16G16R16,          DDSKTX_FORMAT_RGBA16,  false },
     { DDSKTX__DDS_A16B16G16R16F,         DDSKTX_FORMAT_RGBA16F, false },
     { DDSKTX__DDPF_RGB|DDSKTX__DDPF_ALPHAPIXELS, DDSKTX_FORMAT_BGRA8,   false },
@@ -538,7 +540,20 @@ static const ddsktx__dds_translate_fourcc_format k__translate_dxgi[] = {
     { DDSKTX__DDS_FORMAT_R16G16B16A16_UNORM,  DDSKTX_FORMAT_RGBA16,     false },
     { DDSKTX__DDS_FORMAT_R16G16B16A16_FLOAT,  DDSKTX_FORMAT_RGBA16F,    false },
     { DDSKTX__DDS_FORMAT_R10G10B10A2_UNORM,   DDSKTX_FORMAT_RGB10A2,    false },
-    { DDSKTX__DDS_FORMAT_R11G11B10_FLOAT,     DDSKTX_FORMAT_RG11B10F,   false },
+	{ DDSKTX__DDS_FORMAT_R11G11B10_FLOAT,     DDSKTX_FORMAT_RG11B10F,   false },
+
+	{ DDSKTX__DDS_ASTC_4X4_UNORM,		 	  DDSKTX_FORMAT_ASTC_4x4, 	false },
+	{ DDSKTX__DDS_ASTC_4X4_UNORM_SRGB,		  DDSKTX_FORMAT_ASTC_4x4, 	true },
+	{ DDSKTX__DDS_ASTC_5X5_UNORM,			  DDSKTX_FORMAT_ASTC_5x5, 	false },
+	{ DDSKTX__DDS_ASTC_5X5_UNORM_SRGB,		  DDSKTX_FORMAT_ASTC_5x5, 	true },
+	{ DDSKTX__DDS_ASTC_6X6_UNORM,			  DDSKTX_FORMAT_ASTC_6x6, 	false },
+	{ DDSKTX__DDS_ASTC_6X6_UNORM_SRGB,		  DDSKTX_FORMAT_ASTC_6x6, 	true },
+	{ DDSKTX__DDS_ASTC_8X8_UNORM,			  DDSKTX_FORMAT_ASTC_8x8, 	false },
+	{ DDSKTX__DDS_ASTC_8X8_UNORM_SRGB,		  DDSKTX_FORMAT_ASTC_8x8, 	true },
+	{ DDSKTX__DDS_ASTC_10X10_UNORM,			  DDSKTX_FORMAT_ASTC_10x10, false },
+	{ DDSKTX__DDS_ASTC_10X10_UNORM_SRGB,	  DDSKTX_FORMAT_ASTC_10x10,	true },
+	{ DDSKTX__DDS_ASTC_12X12_UNORM,			  DDSKTX_FORMAT_ASTC_12x12,	false },
+	{ DDSKTX__DDS_ASTC_12X12_UNORM_SRGB,	  DDSKTX_FORMAT_ASTC_12x12,	true },
 };
 
 static const ddsktx__dds_translate_pixel_format k__translate_dds_pixel[] = {
@@ -603,9 +618,9 @@ static const ddsktx__block_info k__block_info[] =
     {   8, 4, 4, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC4x4
     {   6, 5, 5, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC5x5
     {   4, 6, 6, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC6x6
-    {   4, 8, 5, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC8x5
-    {   3, 8, 6, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC8x6
-    {   3, 10, 5, 16, 1, 1, 0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC10x5
+    {   2, 8, 8, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC8x8
+    {   2, 10,10,16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC10x10
+    {   1, 12,12,16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC12x12
     {   0, 0, 0,  0, 0, 0,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_COUNT) }, // Unknown
     {   8, 1, 1,  1, 1, 1,  0, 0,  0,  0,  0,  8, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // A8
     {   8, 1, 1,  1, 1, 1,  0, 0,  8,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // R8
@@ -864,10 +879,10 @@ static const ddsktx__format_info k__formats_info[] = {
     {"ATCI", false},
     {"ASTC4x4", true},
     {"ASTC5x5", true},
-    {"ASTC6x6", false},
-    {"ASTC8x5", true},
-    {"ASTC8x6", false},
-    {"ASTC10x5", false},
+    {"ASTC6x6", true},
+    {"ASTC8x8", true},
+    {"ASTC10x10", true},
+    {"ASTC12x12", true},
     {"<unknown>", false},
     {"A8", true},
     {"R8", false},
@@ -1125,10 +1140,10 @@ void ddsktx_get_sub(const ddsktx_texture_info* tc, ddsktx_sub_data* sub_data,
                     int row_bytes, mip_size;
                     
                     if (format < _DDSKTX_FORMAT_COMPRESSED) {
-                        int num_blocks_wide = width > 0 ? ddsktx__max(1, (width + 3)/4) : 0;
+                        int num_blocks_wide = width > 0 ? ddsktx__max(1, (width + (binfo->block_width-1))/binfo->block_width) : 0;
                         num_blocks_wide = ddsktx__max(min_block_x, num_blocks_wide);
 
-                        int num_blocks_high = height > 0 ? ddsktx__max(1, (height + 3)/4) : 0;
+                        int num_blocks_high = height > 0 ? ddsktx__max(1, (height + (binfo->block_height-1))/binfo->block_height) : 0;
                         num_blocks_high = ddsktx__max(min_block_y, num_blocks_high);
 
                         row_bytes = num_blocks_wide * block_size;
