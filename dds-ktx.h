@@ -57,7 +57,7 @@
 //              assert(!(tc.flags & DDSKTX_TEXTURE_FLAG_CUBEMAP));
 //              assert(tc.num_layers == 1);
 //              // Create GPU texture from tc data
-//              for (int mip = 0; mip < tc->num_mips; mip++) {
+//              for (int mip = 0; mip < tc.num_mips; mip++) {
 //                  ddsktx_sub_data sub_data;
 //                  ddsktx_get_sub(&tc, &sub_data, dds_data, size, 0, 0, mip);
 //                  // Fill/Set texture sub resource data (mips in this case)
@@ -112,7 +112,7 @@ typedef enum ddsktx_format
     DDSKTX_FORMAT_ETC1,        // ETC1 RGB8
     DDSKTX_FORMAT_ETC2,        // ETC2 RGB8
     DDSKTX_FORMAT_ETC2A,       // ETC2 RGBA8
-    DDSKTX_FORMAT_ETC2A1,      // ETC2 RGBA8A1
+	DDSKTX_FORMAT_ETC2A1,      // ETC2 RGB8A1
     DDSKTX_FORMAT_PTC12,       // PVRTC1 RGB 2bpp
     DDSKTX_FORMAT_PTC14,       // PVRTC1 RGB 4bpp
     DDSKTX_FORMAT_PTC12A,      // PVRTC1 RGBA 2bpp
