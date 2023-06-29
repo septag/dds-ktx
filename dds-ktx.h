@@ -79,6 +79,8 @@
 
  #pragma once
 
+#define DDSKTX_IMPLEMENT
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -128,6 +130,12 @@ typedef enum ddsktx_format
 	DDSKTX_FORMAT_ASTC_8x8,
 	DDSKTX_FORMAT_ASTC_10x10,
 	DDSKTX_FORMAT_ASTC_12x12,
+	DDSKTX_FORMAT_ASTC_4x4_FLOAT,
+	DDSKTX_FORMAT_ASTC_5x5_FLOAT,
+	DDSKTX_FORMAT_ASTC_6x6_FLOAT,
+	DDSKTX_FORMAT_ASTC_8x8_FLOAT,
+	DDSKTX_FORMAT_ASTC_10x10_FLOAT,
+	DDSKTX_FORMAT_ASTC_12x12_FLOAT,
     _DDSKTX_FORMAT_COMPRESSED,
     DDSKTX_FORMAT_A8,
     DDSKTX_FORMAT_R8,
@@ -248,6 +256,12 @@ DDSKTX_API bool        ddsktx_format_compressed(ddsktx_format format);
 #define DDSKTX__DDS_ASTC_10X10_UNORM_SRGB 	179
 #define DDSKTX__DDS_ASTC_12X12_UNORM 		186
 #define DDSKTX__DDS_ASTC_12X12_UNORM_SRGB   187
+#define DDSKTX__DDS_ASTC_4X4_FLOAT			136
+#define DDSKTX__DDS_ASTC_5X5_FLOAT			144
+#define DDSKTX__DDS_ASTC_6X6_FLOAT			152
+#define DDSKTX__DDS_ASTC_8X8_FLOAT			164
+#define DDSKTX__DDS_ASTC_10X10_FLOAT    	180
+#define DDSKTX__DDS_ASTC_12X12_FLOAT    	188
 
 #define DDSKTX__DDS_R8G8B8         20
 #define DDSKTX__DDS_A8R8G8B8       21
@@ -554,6 +568,12 @@ static const ddsktx__dds_translate_fourcc_format k__translate_dxgi[] = {
 	{ DDSKTX__DDS_ASTC_10X10_UNORM_SRGB,	  DDSKTX_FORMAT_ASTC_10x10,	true },
 	{ DDSKTX__DDS_ASTC_12X12_UNORM,			  DDSKTX_FORMAT_ASTC_12x12,	false },
 	{ DDSKTX__DDS_ASTC_12X12_UNORM_SRGB,	  DDSKTX_FORMAT_ASTC_12x12,	true },
+	{ DDSKTX__DDS_ASTC_4X4_FLOAT,	  		  DDSKTX_FORMAT_ASTC_4x4_FLOAT,	true },
+	{ DDSKTX__DDS_ASTC_5X5_FLOAT,	  		  DDSKTX_FORMAT_ASTC_5x5_FLOAT,	false },
+	{ DDSKTX__DDS_ASTC_6X6_FLOAT,	  		  DDSKTX_FORMAT_ASTC_6x6_FLOAT,	false },
+	{ DDSKTX__DDS_ASTC_8X8_FLOAT,	  		  DDSKTX_FORMAT_ASTC_8x8_FLOAT,	false },
+	{ DDSKTX__DDS_ASTC_10X10_FLOAT,	  		  DDSKTX_FORMAT_ASTC_10x10_FLOAT,	false },
+	{ DDSKTX__DDS_ASTC_12X12_FLOAT,	  		  DDSKTX_FORMAT_ASTC_12x12_FLOAT,	false }
 };
 
 static const ddsktx__dds_translate_pixel_format k__translate_dds_pixel[] = {
@@ -621,7 +641,13 @@ static const ddsktx__block_info k__block_info[] =
     {   2, 8, 8, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC8x8
     {   2, 10,10,16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC10x10
     {   1, 12,12,16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // ASTC12x12
-    {   0, 0, 0,  0, 0, 0,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_COUNT) }, // Unknown
+	{   8, 4, 4, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_FLOAT) }, // ASTC4x4_FLOAT
+	{   6, 5, 5, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_FLOAT) }, // ASTC5x5_FLOAT
+	{   4, 6, 6, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_FLOAT) }, // ASTC6x6_FLOAT
+	{   2, 8, 8, 16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_FLOAT) }, // ASTC8x8_FLOAT
+	{   2, 10,10,16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_FLOAT) }, // ASTC10x10_FLOAT
+	{   1, 12,12,16, 1, 1,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_FLOAT) }, // ASTC12x12_FLOAT
+	{   0, 0, 0,  0, 0, 0,  0, 0,  0,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_COUNT) }, // Unknown
     {   8, 1, 1,  1, 1, 1,  0, 0,  0,  0,  0,  8, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // A8
     {   8, 1, 1,  1, 1, 1,  0, 0,  8,  0,  0,  0, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // R8
     {  32, 1, 1,  4, 1, 1,  0, 0,  8,  8,  8,  8, (uint8_t)(DDSKTX__ENCODE_UNORM) }, // RGBA8

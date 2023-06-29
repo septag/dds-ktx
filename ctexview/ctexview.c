@@ -510,6 +510,15 @@ static void init(void)
 		desc.pixel_format = SG_PIXELFORMAT_RGBA8; 
 		is_astc = true;
 		break;
+	case DDSKTX_FORMAT_ASTC_4x4_FLOAT: 
+	case DDSKTX_FORMAT_ASTC_5x5_FLOAT:
+	case DDSKTX_FORMAT_ASTC_6x6_FLOAT:
+	case DDSKTX_FORMAT_ASTC_8x8_FLOAT:
+	case DDSKTX_FORMAT_ASTC_10x10_FLOAT:
+	case DDSKTX_FORMAT_ASTC_12x12_FLOAT:
+		desc.pixel_format = SG_PIXELFORMAT_RGBA16F; 
+		is_astc = true;
+		break;
     default:    assert(0); exit(-1);
     }
 
@@ -518,6 +527,7 @@ static void init(void)
 	if (is_astc) {
 		ddsktx_texture_info* dds = &g_state.texinfo;
 
+		// TODO: add float support
 		astcenc_profile prf = (dds->flags&DDSKTX_TEXTURE_FLAG_SRGB) ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR;
 		astcenc_config config = { 0 };
 		astcenc_context* decoder;
