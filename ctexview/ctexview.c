@@ -70,8 +70,8 @@ typedef struct vertex
 
 typedef struct image_size
 {
-	int width;
-	int height;
+    int width;
+    int height;
 } image_size;
 
 typedef struct ctexview_state
@@ -81,7 +81,7 @@ typedef struct ctexview_state
     int file_size;
     ddsktx_texture_info texinfo;
     sg_image tex;
-	image_size mip_sizes[SG_MAX_MIPMAPS];
+    image_size mip_sizes[SG_MAX_MIPMAPS];
     sg_shader shader;
     sg_shader shader_cubemap;
     sg_pipeline pip;
@@ -378,13 +378,216 @@ static sg_shader_desc get_shader_desc(const void* vs_data, uint32_t vs_size, con
     };
 }
 
+// main texture (dds-ktx)
+static void reload_image(void)
+{
+    if (g_state.tex.id) {
+        sg_destroy_image(g_state.tex);
+        g_state.tex.id = 0;
+    }
+        
+    sg_image_type imgtype = (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_CUBEMAP) ? SG_IMAGETYPE_CUBE : SG_IMAGETYPE_2D;
+    if (imgtype == SG_IMAGETYPE_CUBE) {
+        set_cube_face(0);
+    } else {
+        sg_update_buffer(g_state.vb, k_vertices, sizeof(k_vertices));
+    }
+
+    adjust_checker_coords(sapp_width(), sapp_height());
+
+    sg_image_desc desc = {
+        .type = imgtype,
+        .width = g_state.texinfo.width,
+        .height = g_state.texinfo.height,
+        .depth = 1,
+        .num_mipmaps = g_state.texinfo.num_mips,
+        .min_filter = SG_FILTER_NEAREST,
+        .mag_filter = SG_FILTER_NEAREST
+    };
+
+    bool is_astc = false;
+
+    switch (g_state.texinfo.format) {
+        case DDSKTX_FORMAT_BC1:     desc.pixel_format = SG_PIXELFORMAT_BC1_RGBA; break;
+        case DDSKTX_FORMAT_BC2:     desc.pixel_format = SG_PIXELFORMAT_BC2_RGBA; break;
+        case DDSKTX_FORMAT_BC3:     desc.pixel_format = SG_PIXELFORMAT_BC3_RGBA; break;
+        case DDSKTX_FORMAT_BC4:     desc.pixel_format = SG_PIXELFORMAT_BC4_R; break;
+        case DDSKTX_FORMAT_BC5:     desc.pixel_format = SG_PIXELFORMAT_BC5_RG; break;
+        case DDSKTX_FORMAT_BC6H:    desc.pixel_format = SG_PIXELFORMAT_BC6H_RGBF; break;
+        case DDSKTX_FORMAT_BC7:     desc.pixel_format = SG_PIXELFORMAT_BC7_RGBA; break;
+        case DDSKTX_FORMAT_A8:      
+        case DDSKTX_FORMAT_R8:      desc.pixel_format = SG_PIXELFORMAT_R8; break;
+        case DDSKTX_FORMAT_RGBA8:
+        case DDSKTX_FORMAT_RGBA8S:   desc.pixel_format = SG_PIXELFORMAT_RGBA8; break;
+        case DDSKTX_FORMAT_RG16:     desc.pixel_format = SG_PIXELFORMAT_RG16; break;
+        case DDSKTX_FORMAT_RGB8:     desc.pixel_format = SG_PIXELFORMAT_RGBA8; break;
+        case DDSKTX_FORMAT_R16:      desc.pixel_format = SG_PIXELFORMAT_R16; break;
+        case DDSKTX_FORMAT_R32F:     desc.pixel_format = SG_PIXELFORMAT_R32F; break;
+        case DDSKTX_FORMAT_R16F:     desc.pixel_format = SG_PIXELFORMAT_R16F; break;
+        case DDSKTX_FORMAT_RG16F:    desc.pixel_format = SG_PIXELFORMAT_RG16F; break;
+        case DDSKTX_FORMAT_RG16S:    desc.pixel_format = SG_PIXELFORMAT_RG16; break;
+        case DDSKTX_FORMAT_RGBA16F:  desc.pixel_format = SG_PIXELFORMAT_RGBA16F; break;
+        case DDSKTX_FORMAT_RGBA16:   desc.pixel_format = SG_PIXELFORMAT_RGBA16; break;
+        case DDSKTX_FORMAT_BGRA8:    desc.pixel_format = SG_PIXELFORMAT_BGRA8; break;
+        case DDSKTX_FORMAT_RGB10A2:  desc.pixel_format = SG_PIXELFORMAT_RGB10A2; break;
+        case DDSKTX_FORMAT_RG11B10F: desc.pixel_format = SG_PIXELFORMAT_RG11B10F; break;
+        case DDSKTX_FORMAT_RG8:      desc.pixel_format = SG_PIXELFORMAT_RG8; break;
+        case DDSKTX_FORMAT_RG8S:     desc.pixel_format = SG_PIXELFORMAT_RG8; break;
+        case DDSKTX_FORMAT_ASTC_4x4: 
+        case DDSKTX_FORMAT_ASTC_5x5:
+        case DDSKTX_FORMAT_ASTC_6x6:
+        case DDSKTX_FORMAT_ASTC_8x8:
+        case DDSKTX_FORMAT_ASTC_10x10:
+        case DDSKTX_FORMAT_ASTC_12x12:
+            desc.pixel_format = SG_PIXELFORMAT_RGBA8; 
+            is_astc = true;
+            break;
+        case DDSKTX_FORMAT_ASTC_4x4_FLOAT: 
+        case DDSKTX_FORMAT_ASTC_5x5_FLOAT:
+        case DDSKTX_FORMAT_ASTC_6x6_FLOAT:
+        case DDSKTX_FORMAT_ASTC_8x8_FLOAT:
+        case DDSKTX_FORMAT_ASTC_10x10_FLOAT:
+        case DDSKTX_FORMAT_ASTC_12x12_FLOAT:
+            desc.pixel_format = SG_PIXELFORMAT_RGBA16F; 
+            is_astc = true;
+            break;
+        default:    assert(0); exit(-1);
+    }
+
+    int num_faces = imgtype == SG_IMAGETYPE_CUBE ? 6 : 1;
+    int dds_array_idx = (imgtype == SG_IMAGETYPE_2D && g_state.texinfo.num_layers > 1) ? g_state.cur_slice : 0;
+    int face_offset = (imgtype == SG_IMAGETYPE_2D && g_state.texinfo.depth > 1) ? g_state.cur_slice : 0;
+
+    if (is_astc) {
+        ddsktx_texture_info* dds = &g_state.texinfo;
+
+        // TODO: add float support
+        astcenc_profile prf = (dds->flags&DDSKTX_TEXTURE_FLAG_SRGB) ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR;
+        astcenc_config config = { 0 };
+        astcenc_context* decoder;
+
+        uint32_t block_size = 0;
+        switch (dds->format) {
+            case DDSKTX_FORMAT_ASTC_4x4: 	block_size = 4;  break;
+            case DDSKTX_FORMAT_ASTC_5x5:	block_size = 5;  break;
+            case DDSKTX_FORMAT_ASTC_6x6:	block_size = 6;  break;
+            case DDSKTX_FORMAT_ASTC_8x8:	block_size = 8;  break;
+            case DDSKTX_FORMAT_ASTC_10x10:	block_size = 10; break;
+            case DDSKTX_FORMAT_ASTC_12x12:	block_size = 12; break;
+            default:						assert(0);
+        }
+        astcenc_config_init(prf, block_size, block_size, 1, 0, 0, &config);
+        astcenc_error r =  astcenc_context_alloc(&config, 1, &decoder);
+        assert(r == ASTCENC_SUCCESS);
+        
+        astcenc_swizzle swizzle = {
+            .r = ASTCENC_SWZ_R,
+            .g = ASTCENC_SWZ_G,
+            .b = ASTCENC_SWZ_B,
+            .a = ASTCENC_SWZ_A
+        };
+
+        astcenc_image img = {
+            .dim_x = dds->width, 
+            .dim_y = dds->height,
+            .dim_z = 1,
+            .data_type = ASTCENC_TYPE_U8
+        };
+
+        int first_slice_size = dds->width * dds->height * 4;
+        img.data = malloc(sizeof(void*) * num_faces);
+        uint8_t* compressed_buff = NULL;
+        uint32_t compressed_buff_size = 0;
+
+        for (int face = 0; face < num_faces; face++) {
+            img.data[face] = malloc(first_slice_size);
+
+            ddsktx_sub_data subdata;
+            ddsktx_get_sub(dds, &subdata, g_state.file_data, g_state.file_size, dds_array_idx, face + face_offset, 0);
+            
+            compressed_buff = (uint8_t*)realloc(compressed_buff, compressed_buff_size + subdata.size_bytes);
+            memcpy(compressed_buff + compressed_buff_size, subdata.buff, subdata.size_bytes);
+            compressed_buff_size += subdata.size_bytes;
+        }
+
+        r = astcenc_decompress_image(decoder, compressed_buff, compressed_buff_size, &img, &swizzle, 0);
+        assert(r == ASTCENC_SUCCESS);
+
+        for (int face = 0; face < num_faces; face++) {
+            int w = dds->width;
+            int h = dds->height;
+
+            uint8_t* src_buff = (uint8_t*)malloc(w*h*4);
+            uint8_t* src_buff_main = src_buff;
+            memcpy(src_buff, img.data[face], w*h*4);
+
+            desc.content.subimage[face][0].ptr = src_buff;
+            desc.content.subimage[face][0].size = first_slice_size;
+            g_state.mip_sizes[0].width = w;
+            g_state.mip_sizes[0].height = h;
+            for (int mip = 1; mip < dds->num_mips && mip < SG_MAX_MIPMAPS; mip++) {
+                int resized_w = w >> 1;
+                int resized_h = h >> 1;
+                if (resized_w == 0)
+                    resized_w = 1;
+                if (resized_h == 0)
+                    resized_h = 1;
+
+                uint8_t* resized_buff = (uint8_t*)malloc(resized_w*resized_h*4);
+
+                stbir_resize_uint8(src_buff, w, h, 0, resized_buff, resized_w, resized_h, 0, 4);
+
+                w = resized_w;
+                h = resized_h;
+
+                desc.content.subimage[face][mip].ptr = resized_buff;
+                desc.content.subimage[face][mip].size = w*h*4;
+                g_state.mip_sizes[mip].width = w;
+                g_state.mip_sizes[mip].height = h;
+
+                src_buff = resized_buff;
+            }
+        }
+
+        free(compressed_buff);
+        astcenc_context_free(decoder);
+        for (int i = 0; i < num_faces; i++) 
+            free(img.data[i]);
+        free(img.data);
+    }	
+    else {
+        ddsktx_texture_info* dds = &g_state.texinfo;
+        for (int face = 0; face < num_faces; face++) {
+            int w = dds->width;
+            int h = dds->height;
+
+            for (int mip = 0; mip < g_state.texinfo.num_mips; mip++) {
+                ddsktx_sub_data subdata;
+                ddsktx_get_sub(dds, &subdata, g_state.file_data, g_state.file_size, dds_array_idx, face + face_offset, mip);
+
+                desc.content.subimage[face][mip].ptr = subdata.buff;
+                desc.content.subimage[face][mip].size = subdata.size_bytes;
+                g_state.mip_sizes[mip].width = w;
+                g_state.mip_sizes[mip].height = h;
+
+                w >>= 1;
+                h >>= 1;
+                if (w == 0)
+                    w = 1;
+                if (h == 0)
+                    h = 1;
+            }
+        }
+    }	// !is_astc
+
+    g_state.tex = sg_make_image(&desc);
+}
+
 static void init(void) 
 {
     sg_setup(&(sg_desc) {
         .context = sapp_sgcontext()
     });
-
-    sg_image_type imgtype = (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_CUBEMAP) ? SG_IMAGETYPE_CUBE : SG_IMAGETYPE_2D;
 
     g_state.pass_action = (sg_pass_action) {
         .colors[0] = { .action = SG_ACTION_CLEAR, .val = {0, 0, 0, 1.0f} }
@@ -454,199 +657,7 @@ static void init(void)
         g_state.pip_cubemap = sg_make_pipeline(&pip_desc);
     }
 
-    // main texture (dds-ktx)
-    if (imgtype == SG_IMAGETYPE_CUBE) {
-        set_cube_face(0);
-    } else {
-        sg_update_buffer(g_state.vb, k_vertices, sizeof(k_vertices));
-    }
-
-    adjust_checker_coords(sapp_width(), sapp_height());
-
-    sg_image_desc desc = {
-        .type = imgtype,
-        .width = g_state.texinfo.width,
-        .height = g_state.texinfo.height,
-        .depth = 1,
-        .num_mipmaps = g_state.texinfo.num_mips,
-        .min_filter = SG_FILTER_NEAREST,
-        .mag_filter = SG_FILTER_NEAREST
-    };
-
-	bool is_astc = false;
-
-    switch (g_state.texinfo.format) {
-    case DDSKTX_FORMAT_BC1:     desc.pixel_format = SG_PIXELFORMAT_BC1_RGBA; break;
-    case DDSKTX_FORMAT_BC2:     desc.pixel_format = SG_PIXELFORMAT_BC2_RGBA; break;
-    case DDSKTX_FORMAT_BC3:     desc.pixel_format = SG_PIXELFORMAT_BC3_RGBA; break;
-    case DDSKTX_FORMAT_BC4:     desc.pixel_format = SG_PIXELFORMAT_BC4_R; break;
-    case DDSKTX_FORMAT_BC5:     desc.pixel_format = SG_PIXELFORMAT_BC5_RG; break;
-    case DDSKTX_FORMAT_BC6H:    desc.pixel_format = SG_PIXELFORMAT_BC6H_RGBF; break;
-    case DDSKTX_FORMAT_BC7:     desc.pixel_format = SG_PIXELFORMAT_BC7_RGBA; break;
-    case DDSKTX_FORMAT_A8:      
-    case DDSKTX_FORMAT_R8:      desc.pixel_format = SG_PIXELFORMAT_R8; break;
-    case DDSKTX_FORMAT_RGBA8:
-    case DDSKTX_FORMAT_RGBA8S:   desc.pixel_format = SG_PIXELFORMAT_RGBA8; break;
-    case DDSKTX_FORMAT_RG16:     desc.pixel_format = SG_PIXELFORMAT_RG16; break;
-    case DDSKTX_FORMAT_RGB8:     desc.pixel_format = SG_PIXELFORMAT_RGBA8; break;
-    case DDSKTX_FORMAT_R16:      desc.pixel_format = SG_PIXELFORMAT_R16; break;
-    case DDSKTX_FORMAT_R32F:     desc.pixel_format = SG_PIXELFORMAT_R32F; break;
-    case DDSKTX_FORMAT_R16F:     desc.pixel_format = SG_PIXELFORMAT_R16F; break;
-    case DDSKTX_FORMAT_RG16F:    desc.pixel_format = SG_PIXELFORMAT_RG16F; break;
-    case DDSKTX_FORMAT_RG16S:    desc.pixel_format = SG_PIXELFORMAT_RG16; break;
-    case DDSKTX_FORMAT_RGBA16F:  desc.pixel_format = SG_PIXELFORMAT_RGBA16F; break;
-    case DDSKTX_FORMAT_RGBA16:   desc.pixel_format = SG_PIXELFORMAT_RGBA16; break;
-    case DDSKTX_FORMAT_BGRA8:    desc.pixel_format = SG_PIXELFORMAT_BGRA8; break;
-    case DDSKTX_FORMAT_RGB10A2:  desc.pixel_format = SG_PIXELFORMAT_RGB10A2; break;
-    case DDSKTX_FORMAT_RG11B10F: desc.pixel_format = SG_PIXELFORMAT_RG11B10F; break;
-    case DDSKTX_FORMAT_RG8:      desc.pixel_format = SG_PIXELFORMAT_RG8; break;
-    case DDSKTX_FORMAT_RG8S:     desc.pixel_format = SG_PIXELFORMAT_RG8; break;
-	case DDSKTX_FORMAT_ASTC_4x4: 
-	case DDSKTX_FORMAT_ASTC_5x5:
-	case DDSKTX_FORMAT_ASTC_6x6:
-	case DDSKTX_FORMAT_ASTC_8x8:
-	case DDSKTX_FORMAT_ASTC_10x10:
-	case DDSKTX_FORMAT_ASTC_12x12:
-		desc.pixel_format = SG_PIXELFORMAT_RGBA8; 
-		is_astc = true;
-		break;
-	case DDSKTX_FORMAT_ASTC_4x4_FLOAT: 
-	case DDSKTX_FORMAT_ASTC_5x5_FLOAT:
-	case DDSKTX_FORMAT_ASTC_6x6_FLOAT:
-	case DDSKTX_FORMAT_ASTC_8x8_FLOAT:
-	case DDSKTX_FORMAT_ASTC_10x10_FLOAT:
-	case DDSKTX_FORMAT_ASTC_12x12_FLOAT:
-		desc.pixel_format = SG_PIXELFORMAT_RGBA16F; 
-		is_astc = true;
-		break;
-    default:    assert(0); exit(-1);
-    }
-
-	int num_faces = imgtype == SG_IMAGETYPE_CUBE ? 6 : 1;
-
-	if (is_astc) {
-		ddsktx_texture_info* dds = &g_state.texinfo;
-
-		// TODO: add float support
-		astcenc_profile prf = (dds->flags&DDSKTX_TEXTURE_FLAG_SRGB) ? ASTCENC_PRF_LDR_SRGB : ASTCENC_PRF_LDR;
-		astcenc_config config = { 0 };
-		astcenc_context* decoder;
-
-		uint32_t block_size = 0;
-		switch (dds->format) {
-			case DDSKTX_FORMAT_ASTC_4x4: 	block_size = 4;  break;
-			case DDSKTX_FORMAT_ASTC_5x5:	block_size = 5;  break;
-			case DDSKTX_FORMAT_ASTC_6x6:	block_size = 6;  break;
-			case DDSKTX_FORMAT_ASTC_8x8:	block_size = 8;  break;
-			case DDSKTX_FORMAT_ASTC_10x10:	block_size = 10; break;
-			case DDSKTX_FORMAT_ASTC_12x12:	block_size = 12; break;
-			default:						assert(0);
-		}
-		astcenc_config_init(prf, block_size, block_size, 1, 0, 0, &config);
-		astcenc_error r =  astcenc_context_alloc(&config, 1, &decoder);
-		assert(r == ASTCENC_SUCCESS);
-		
-		astcenc_swizzle swizzle = {
-			.r = ASTCENC_SWZ_R,
-			.g = ASTCENC_SWZ_G,
-			.b = ASTCENC_SWZ_B,
-			.a = ASTCENC_SWZ_A
-		};
-
-		astcenc_image img = {
-			.dim_x = dds->width, 
-			.dim_y = dds->height,
-			.dim_z = 1,
-			.data_type = ASTCENC_TYPE_U8
-		};
-
-		int first_slice_size = dds->width * dds->height * 4;
-		img.data = malloc(sizeof(void*) * num_faces);
-		uint8_t* compressed_buff = NULL;
-		uint32_t compressed_buff_size = 0;
-
-		for (int face = 0; face < num_faces; face++) {
-			img.data[face] = malloc(first_slice_size);
-
-			ddsktx_sub_data subdata;
-			ddsktx_get_sub(dds, &subdata, g_state.file_data, g_state.file_size, 0, face, 0);
-			
-			compressed_buff = (uint8_t*)realloc(compressed_buff, compressed_buff_size + subdata.size_bytes);
-			memcpy(compressed_buff + compressed_buff_size, subdata.buff, subdata.size_bytes);
-			compressed_buff_size += subdata.size_bytes;
-		}
-
-		r = astcenc_decompress_image(decoder, compressed_buff, compressed_buff_size, &img, &swizzle, 0);
-		assert(r == ASTCENC_SUCCESS);
-
-		for (int face = 0; face < num_faces; face++) {
-			int w = dds->width;
-			int h = dds->height;
-
-			uint8_t* src_buff = (uint8_t*)malloc(w*h*4);
-			uint8_t* src_buff_main = src_buff;
-			memcpy(src_buff, img.data[face], w*h*4);
-
-			desc.content.subimage[face][0].ptr = src_buff;
-			desc.content.subimage[face][0].size = first_slice_size;
-			g_state.mip_sizes[0].width = w;
-			g_state.mip_sizes[0].height = h;
-			for (int mip = 1; mip < dds->num_mips && mip < SG_MAX_MIPMAPS; mip++) {
-				int resized_w = w >> 1;
-				int resized_h = h >> 1;
-                if (resized_w == 0)
-                    resized_w = 1;
-                if (resized_h == 0)
-                    resized_h = 1;
-
-				uint8_t* resized_buff = (uint8_t*)malloc(resized_w*resized_h*4);
-
-				stbir_resize_uint8(src_buff, w, h, 0, resized_buff, resized_w, resized_h, 0, 4);
-
-				w = resized_w;
-				h = resized_h;
-
-				desc.content.subimage[face][mip].ptr = resized_buff;
-				desc.content.subimage[face][mip].size = w*h*4;
-				g_state.mip_sizes[mip].width = w;
-				g_state.mip_sizes[mip].height = h;
-
-				src_buff = resized_buff;
-			}
-		}
-
-		free(compressed_buff);
-		astcenc_context_free(decoder);
-		for (int i = 0; i < num_faces; i++) 
-			free(img.data[i]);
-		free(img.data);
-	}	
-	else {
-		ddsktx_texture_info* dds = &g_state.texinfo;
-		for (int face = 0; face < num_faces; face++) {
-			int w = dds->width;
-			int h = dds->height;
-
-			for (int mip = 0; mip < g_state.texinfo.num_mips; mip++) {
-				ddsktx_sub_data subdata;
-				ddsktx_get_sub(dds, &subdata, g_state.file_data, g_state.file_size, 0, face, mip);
-
-				desc.content.subimage[face][mip].ptr = subdata.buff;
-				desc.content.subimage[face][mip].size = subdata.size_bytes;
-				g_state.mip_sizes[mip].width = w;
-				g_state.mip_sizes[mip].height = h;
-
-				w >>= 1;
-				h >>= 1;
-				if (w == 0)
-					w = 1;
-				if (h == 0)
-					h = 1;
-			}
-		}
-	}	// !is_astc
-
-    g_state.tex = sg_make_image(&desc);
+    reload_image();
 
     sdtx_setup(&(sdtx_desc_t) {
         .fonts = {
@@ -672,6 +683,8 @@ static const char* texture_type_info()
         snprintf(info, sizeof(info), "Cube (%s)", k_cube_face_names[g_state.cube_face]);
     } else if (g_state.texinfo.depth > 1) {
         snprintf(info, sizeof(info), "3D (%d/%d)", g_state.cur_slice, g_state.texinfo.depth);
+    } else if (g_state.texinfo.num_layers > 1) {
+        snprintf(info, sizeof(info), "2DArray (%d/%d)", g_state.cur_slice, g_state.texinfo.num_layers);
     } else {
         strcpy(info, "2D");
     }
@@ -816,6 +829,18 @@ static void on_events(const sapp_event* e)
         }
         if (e->key_code == SAPP_KEYCODE_DOWN) {
             g_state.cur_mip = (g_state.cur_mip > 0) ? g_state.cur_mip - 1 : 0;
+        }
+        if (e->key_code == SAPP_KEYCODE_LEFT) {
+            int cur_slice = g_state.cur_slice;
+            g_state.cur_slice = (g_state.cur_slice > 0) ? g_state.cur_slice - 1 : 0;
+            if (g_state.cur_slice != cur_slice)
+                reload_image();
+        }
+        if (e->key_code == SAPP_KEYCODE_RIGHT) {
+            int cur_slice = g_state.cur_slice;
+            g_state.cur_slice = (g_state.cur_slice + 1) >= g_state.texinfo.num_layers ? (g_state.texinfo.num_layers - 1) : g_state.cur_slice + 1;
+            if (g_state.cur_slice != cur_slice)
+                reload_image();
         }
 
         if (e->key_code == SAPP_KEYCODE_ESCAPE) {
