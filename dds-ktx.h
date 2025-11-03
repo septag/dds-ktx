@@ -71,6 +71,7 @@
 //                  Added KTX support
 //      1.0.1       Fixed major bugs in KTX parsing
 //      1.1.0       Fixed bugs in get_sub routine, refactored some parts, image-viewer example
+//      1.2.0       Improved support for DirectX XRGB formats
 //
 // TODO
 //      Write KTX/DDS
@@ -158,6 +159,7 @@ typedef enum ddsktx_texture_flags
     DDSKTX_TEXTURE_FLAG_DDS     = 0x08,       // container was DDS file
     DDSKTX_TEXTURE_FLAG_KTX     = 0x10,       // container was KTX file
     DDSKTX_TEXTURE_FLAG_VOLUME  = 0x20,       // 3D volume
+    DDSKTX_TEXTURE_FLAG_ALPHA_X = 0x40        // Alpha channel is not used (DirectX XRGB formats)
 } ddsktx_texture_flags;
 
 typedef struct ddsktx_texture_info
@@ -547,6 +549,7 @@ static const ddsktx__dds_translate_pixel_format k__translate_dds_pixel[] = {
     { 24, DDSKTX__DDPF_RGB,                  { 0x00ff0000, 0x0000ff00, 0x000000ff, 0x00000000 }, DDSKTX_FORMAT_RGB8    },
     { 24, DDSKTX__DDPF_RGB,                  { 0x000000ff, 0x0000ff00, 0x00ff0000, 0x00000000 }, DDSKTX_FORMAT_RGB8    },
     { 32, DDSKTX__DDPF_RGB,                  { 0x00ff0000, 0x0000ff00, 0x000000ff, 0x00000000 }, DDSKTX_FORMAT_BGRA8   },
+    { 32, DDSKTX__DDPF_RGB,                  { 0x000000ff, 0x0000ff00, 0x00ff0000, 0x00000000 }, DDSKTX_FORMAT_BGRA8   },   // D3DFMT_X8R8G8B8
     { 32, DDSKTX__DDPF_RGB|DDSKTX__DDPF_ALPHAPIXELS, { 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000 }, DDSKTX_FORMAT_RGBA8   },
     { 32, DDSKTX__DDPF_BUMPDUDV,             { 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000 }, DDSKTX_FORMAT_RGBA8S  },
     { 32, DDSKTX__DDPF_RGB,                  { 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000 }, DDSKTX_FORMAT_BGRA8   },
@@ -1065,6 +1068,8 @@ static bool ddsktx__parse_dds(ddsktx_texture_info* tc, const void* file_data, in
     tc->bpp = k__block_info[format].bpp;
     if (has_alpha || k__formats_info[format].has_alpha)
         tc->flags |= DDSKTX_TEXTURE_FLAG_ALPHA;
+    if (!has_alpha && k__formats_info[format].has_alpha)
+        tc->flags |= DDSKTX_TEXTURE_FLAG_ALPHA_X;
     if (cubemap)
         tc->flags |= DDSKTX_TEXTURE_FLAG_CUBEMAP;
     if (volume)

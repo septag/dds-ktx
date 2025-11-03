@@ -515,6 +515,9 @@ static void init(void)
     g_state.checker = create_checker_texture(8, 16, checker_colors);
 
     g_state.vars_fs.color[0] = g_state.vars_fs.color[1] = g_state.vars_fs.color[2] = g_state.vars_fs.color[3] = 1.0f;
+
+    if (g_state.texinfo.flags & DDSKTX_TEXTURE_FLAG_ALPHA_X) 
+        g_state.vars_fs.color[3] = 0;
 }
 
 static const char* texture_type_info()
