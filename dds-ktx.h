@@ -72,6 +72,7 @@
 //      1.0.1       Fixed major bugs in KTX parsing
 //      1.1.0       Fixed bugs in get_sub routine, refactored some parts, image-viewer example
 //      1.2.0       Improved support for DirectX XRGB formats
+//      1.2.1       Fixed two exploit bugs
 //
 // TODO
 //      Write KTX/DDS
@@ -924,6 +925,10 @@ static bool ddsktx__parse_ktx(ddsktx_texture_info* tc, const void* file_data, in
 
     tc->metadata_offset = r.offset;
     tc->metadata_size = (int)header.metadata_size;
+
+    if (header.metadata_size > (uint32_t)(r.total - r.offset)) {
+        ddsktx__err(err, "ktx: metadata_size exceeds file bounds");
+    }
     r.offset += (int)header.metadata_size;
 
     ddsktx_format format = _DDSKTX_FORMAT_COUNT;
@@ -1082,8 +1087,8 @@ static bool ddsktx__parse_dds(ddsktx_texture_info* tc, const void* file_data, in
 }   
 
 void ddsktx_get_sub(const ddsktx_texture_info* tc, ddsktx_sub_data* sub_data, 
-                 const void* file_data, int size,
-                 int array_idx, int slice_face_idx, int mip_idx)
+                    const void* file_data, int size,
+                    int array_idx, int slice_face_idx, int mip_idx)
 {
     ddsktx_assert(tc);
     ddsktx_assert(sub_data);
@@ -1144,9 +1149,20 @@ void ddsktx_get_sub(const ddsktx_texture_info* tc, ddsktx_sub_data* sub_data,
                     }
                    
                     for (int slice = 0; slice < num_slices; slice++) {
+                        if ((r.offset + mip_size) > r.total) {
+                            ddsktx_assert(false && "texture buffer overflow");
+                            ddsktx_memset(sub_data, 0x0, sizeof(*sub_data));
+                            return;
+                        }
+
                         if (layer == array_idx && mip == mip_idx && 
                             slice == slice_idx && face_idx == face) 
                         {
+                            if ((r.offset + mip_size) > r.total) {
+                                sub_data->buff = NULL;
+                                return;
+                            }
+
                             sub_data->buff = r.buff + r.offset;
                             sub_data->width = width;
                             sub_data->height = height;
@@ -1156,7 +1172,6 @@ void ddsktx_get_sub(const ddsktx_texture_info* tc, ddsktx_sub_data* sub_data,
                         }
 
                         r.offset += mip_size;
-                        ddsktx_assert(r.offset <= r.total && "texture buffer overflow");
                     } // foreach slice
 
                     width >>= 1;
